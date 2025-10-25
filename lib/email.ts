@@ -29,7 +29,7 @@ export async function sendVerificationEmail(email: string, token: string, name: 
     });
 
     debugEmail('Verification email sent successfully', {
-      emailId: result.id,
+      emailId: result.data?.id,
       to: email
     });
 
@@ -66,7 +66,7 @@ export async function sendPasswordResetEmail(email: string, token: string, name:
     });
 
     debugEmail('Password reset email sent successfully', {
-      emailId: result.id,
+      emailId: result.data?.id,
       to: email
     });
 
@@ -98,7 +98,7 @@ export async function send2FACode(email: string, code: string, name: string) {
     });
 
     debugEmail('2FA code email sent successfully', {
-      emailId: result.id,
+      emailId: result.data?.id,
       to: email
     });
 

@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs';
-import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,7 +9,7 @@ import { supabaseAdmin } from './supabase';
 // For now, let's use JWT strategy instead of database sessions
 // Database sessions require a proper adapter implementation
 
-export const authOptions: NextAuthOptions = {
+export const authOptions = {
   providers: [
     // Google OAuth Provider (optional)
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? [
@@ -108,7 +107,7 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
     
-    async redirect({ url, baseUrl }) {
+    async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
       // Allows relative callback URLs
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       // Allows callback URLs on the same origin
@@ -116,7 +115,8 @@ export const authOptions: NextAuthOptions = {
       return baseUrl;
     },
     
-    async jwt({ token, user, account }) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async jwt({ token, user, account }: { token: any; user: any; account: any }) {
       try {
         // For OAuth providers (Google), create user if doesn't exist
         if (account?.provider === 'google') {
@@ -164,7 +164,8 @@ export const authOptions: NextAuthOptions = {
       }
     },
 
-    async session({ session, token }) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async session({ session, token }: { session: any; token: any }) {
       if (token.sub && session.user) {
         session.user.id = token.sub;
         
@@ -201,7 +202,7 @@ export const authOptions: NextAuthOptions = {
   },
 
   session: {
-    strategy: 'jwt',
+    strategy: 'jwt' as const,
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
 

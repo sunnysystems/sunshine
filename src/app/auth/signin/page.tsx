@@ -47,9 +47,11 @@ export default function SignIn() {
       } else {
         // Check if user has organizations
         const session = await getSession();
-        if (session?.user?.organizations && session.user.organizations.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (session?.user && (session.user as any).organizations && (session.user as any).organizations.length > 0) {
           // Redirect to first organization dashboard
-          const firstOrg = session.user.organizations[0];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const firstOrg = (session.user as any).organizations[0];
           router.push(`/${firstOrg.slug}/dashboard`);
         } else {
           // Redirect to setup page to create organization

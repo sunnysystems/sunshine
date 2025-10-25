@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 
 import { authOptions } from '@/lib/auth';
 import { send2FACode } from '@/lib/email';

@@ -33,8 +33,10 @@ export default function Setup() {
     }
 
     // If user already has organizations, redirect to dashboard
-    if (session.user?.organizations && session.user.organizations.length > 0) {
-      const firstOrg = session.user.organizations[0];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (session.user && (session.user as any).organizations && (session.user as any).organizations.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const firstOrg = (session.user as any).organizations[0];
       router.push(`/${firstOrg.slug}/dashboard`);
     }
   }, [session, status, router]);
