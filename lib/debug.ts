@@ -126,7 +126,7 @@ export class RequestTimer {
     logger.trace(`[TIMER] Started: ${operation}`);
   }
 
-  end(data?: unknown): void {
+  end(data?: Record<string, unknown>): void {
     const duration = performance.now() - this.startTime;
     logger.performance(`[TIMER] Completed: ${this.operation}`, {
       duration: `${duration.toFixed(2)}ms`,
