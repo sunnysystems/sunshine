@@ -4,6 +4,7 @@ import { LogOut, Settings, User } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
 
 import { useTenant } from './TenantProvider';
+import { OrganizationSwitcher } from './OrganizationSwitcher';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,11 @@ export function TenantNavbar() {
   const { data: session } = useSession();
   const { tenant, role } = useTenant();
 
+  // Get current organization info
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const organizations = (session?.user as any)?.organizations || [];
+  const currentOrganization = organizations.find((org: any) => org.slug === tenant);
+
   const handleSignOut = () => {
     signOut({ callbackUrl: '/' });
   };
@@ -29,10 +35,7 @@ export function TenantNavbar() {
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold capitalize">{tenant}</h1>
-          <Badge variant="secondary" className="text-xs">
-            {role}
-          </Badge>
+          <OrganizationSwitcher currentOrganization={currentOrganization} />
         </div>
 
         <div className="flex items-center gap-4">

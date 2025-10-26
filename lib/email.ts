@@ -77,34 +77,50 @@ export async function sendPasswordResetEmail(email: string, token: string, name:
   }
 }
 
-export async function send2FACode(email: string, code: string, name: string) {
+export async function sendInvitationEmail(
+  email: string, 
+  token: string, 
+  organizationName: string, 
+  inviterName: string
+) {
   try {
-    debugEmail('Sending 2FA code email', {
+    const invitationUrl = `${process.env.NEXT_PUBLIC_APP_URL}/accept-invite?token=${token}`;
+    
+    debugEmail('Sending invitation email', {
       to: email,
-      name,
-      code: code.substring(0, 2) + '****'
+      organizationName,
+      inviterName,
+      token: token.substring(0, 8) + '...',
+      invitationUrl
     });
     
     const result = await resend.emails.send({
       from: process.env.EMAIL_FROM!,
       to: email,
-      subject: 'Your verification code',
+      subject: `You've been invited to join ${organizationName}`,
       html: `
-        <h1>Two-Factor Authentication Code</h1>
-        <p>Hi ${name},</p>
-        <p>Your verification code is: <strong>${code}</strong></p>
-        <p>This code will expire in 10 minutes.</p>
+        <h1>You've been invited to join ${organizationName}!</h1>
+        <p>Hi there,</p>
+        <p><strong>${inviterName}</strong> has invited you to join <strong>${organizationName}</strong> on ${process.env.NEXT_PUBLIC_APP_NAME}.</p>
+        <p>Click the button below to accept the invitation:</p>
+        <a href="${invitationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">Accept Invitation</a>
+        <p>Or copy and paste this link into your browser:</p>
+        <p><a href="${invitationUrl}">${invitationUrl}</a></p>
+        <p><strong>This invitation will expire in 7 days.</strong></p>
+        <p>If you don't have an account yet, you'll be able to create one when you accept the invitation.</p>
+        <p>If you didn't expect this invitation, you can safely ignore this email.</p>
       `
     });
 
-    debugEmail('2FA code email sent successfully', {
+    debugEmail('Invitation email sent successfully', {
       emailId: result.data?.id,
-      to: email
+      to: email,
+      organizationName
     });
 
     return result;
   } catch (error) {
-    logError(error, 'send2FACode');
+    logError(error, 'sendInvitationEmail');
     throw error;
   }
 }

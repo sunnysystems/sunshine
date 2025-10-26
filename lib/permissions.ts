@@ -146,6 +146,41 @@ export function getAccessibleRoutes(role: UserRole): string[] {
 }
 
 /**
+ * Team management permission helpers
+ */
+export function canInviteMembers(role: UserRole): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+export function canManageMembers(role: UserRole): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+export function canChangeRoles(role: UserRole): boolean {
+  return role === 'owner';
+}
+
+export function canRemoveMembers(role: UserRole, targetRole: UserRole): boolean {
+  // Owner can remove anyone except themselves
+  if (role === 'owner') {
+    return true;
+  }
+  // Admin can only remove members, not other admins or owners
+  if (role === 'admin') {
+    return targetRole === 'member';
+  }
+  return false;
+}
+
+export function canCancelInvitations(role: UserRole): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+export function canResendInvitations(role: UserRole): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+/**
  * Middleware helper to check permissions
  */
 export function requirePermission(

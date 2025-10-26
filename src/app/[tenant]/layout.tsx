@@ -4,9 +4,9 @@ import { getServerSession } from 'next-auth/next';
 
 import { authOptions } from '@/lib/auth';
 
-import { TenantNavbar } from '@/components/tenant/TenantNavbar';
 import { TenantProvider } from '@/components/tenant/TenantProvider';
 import { TenantSidebar } from '@/components/tenant/TenantSidebar';
+import { TenantNavbar } from '@/components/tenant/TenantNavbar';
 import { debugDatabase } from '@/lib/debug';
 import { checkTenantAccess } from '@/lib/tenant';
 
@@ -66,17 +66,22 @@ export default async function TenantLayout({
     notFound();
   }
 
-  return (
-    <TenantProvider tenant={tenant} role={role || 'member'}>
-      <div className="min-h-screen bg-background">
-        <TenantNavbar />
-        <div className="flex">
-          <TenantSidebar />
-          <main className="flex-1 p-6">
-            {children}
-          </main>
-        </div>
-      </div>
-    </TenantProvider>
-  );
+      // Check if user has multiple organizations to show navbar
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userOrganizations = (session.user as any)?.organizations || [];
+      const hasMultipleOrgs = userOrganizations.length > 1;
+
+      return (
+        <TenantProvider tenant={tenant} role={role || 'member'}>
+          <div className="min-h-screen bg-background">
+            {hasMultipleOrgs && <TenantNavbar />}
+            <div className="flex">
+              <TenantSidebar />
+              <main className="flex-1 p-6">
+                {children}
+              </main>
+            </div>
+          </div>
+        </TenantProvider>
+      );
 }
