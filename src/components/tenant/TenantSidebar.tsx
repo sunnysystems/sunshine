@@ -16,6 +16,7 @@ import {
 
 import { useTenant } from './TenantProvider';
 
+import { debugDatabase } from '@/lib/debug';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -80,7 +81,19 @@ export function TenantSidebar() {
   const { tenant, role } = useTenant();
   const pathname = usePathname();
 
+  debugDatabase('TenantSidebar rendering', { 
+    tenant, 
+    role, 
+    pathname,
+    allNavItems: navItems.map(item => ({ title: item.title, href: item.href, roles: item.roles }))
+  });
+
   const filteredNavItems = navItems.filter(item => item.roles.includes(role));
+  
+  debugDatabase('Filtered nav items', { 
+    role, 
+    filteredItems: filteredNavItems.map(item => ({ title: item.title, href: item.href }))
+  });
 
   return (
     <aside className="w-64 border-r bg-background">

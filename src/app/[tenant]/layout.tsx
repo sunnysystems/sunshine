@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth/next';
 import { TenantNavbar } from '@/components/tenant/TenantNavbar';
 import { TenantProvider } from '@/components/tenant/TenantProvider';
 import { TenantSidebar } from '@/components/tenant/TenantSidebar';
+import { debugDatabase } from '@/lib/debug';
 import { checkTenantAccess } from '@/lib/tenant';
 
 interface TenantLayoutProps {
@@ -25,13 +26,28 @@ export default async function TenantLayout({
   }
 
   const { tenant } = await params;
-
+  
   // Check if user has access to this tenant
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (session.user as any)?.id || '';
+  
+  debugDatabase('Tenant layout access check', { 
+    tenant, 
+    userId, 
+    userEmail: session.user?.email 
+  });
+  
   const { hasAccess, role } = await checkTenantAccess(tenant, userId);
   
+  debugDatabase('Tenant access result', { 
+    tenant, 
+    userId, 
+    hasAccess, 
+    role 
+  });
+  
   if (!hasAccess) {
+    debugDatabase('Access denied - returning 404', { tenant, userId });
     notFound();
   }
 
