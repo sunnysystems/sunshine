@@ -63,6 +63,43 @@ export const teamInvitationSchema = z.object({
 
 export type TeamInvitationData = z.infer<typeof teamInvitationSchema>
 
+// Team management schemas
+export const inviteMemberSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  role: z.enum(["admin", "member"]),
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type InviteMemberData = z.infer<typeof inviteMemberSchema>
+
+export const updateMemberRoleSchema = z.object({
+  memberId: z.string().uuid("Invalid member ID"),
+  role: z.enum(["admin", "member"]),
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type UpdateMemberRoleData = z.infer<typeof updateMemberRoleSchema>
+
+export const removeMemberSchema = z.object({
+  memberId: z.string().uuid("Invalid member ID"),
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type RemoveMemberData = z.infer<typeof removeMemberSchema>
+
+export const invitationActionSchema = z.object({
+  invitationId: z.string().uuid("Invalid invitation ID"),
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type InvitationActionData = z.infer<typeof invitationActionSchema>
+
+export const acceptInvitationSchema = z.object({
+  token: z.string().min(1, "Invitation token is required"),
+})
+
+export type AcceptInvitationData = z.infer<typeof acceptInvitationSchema>
+
 // Default form schema (for backward compatibility)
 export const formSchema = contactFormSchema
 export type FormData = ContactFormData

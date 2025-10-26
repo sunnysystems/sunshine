@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { signIn, getSession } from 'next-auth/react';
 import { FcGoogle } from 'react-icons/fc';
@@ -23,6 +23,8 @@ export default function SignIn() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get('invite');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,13 +51,23 @@ export default function SignIn() {
         const session = await getSession();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (session?.user && (session.user as any).organizations && (session.user as any).organizations.length > 0) {
-          // Redirect to first organization dashboard
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const firstOrg = (session.user as any).organizations[0];
-          router.push(`/${firstOrg.slug}/dashboard`);
+          // If user came from invitation, redirect to accept invite first
+          if (inviteToken) {
+            router.push(`/accept-invite?token=${inviteToken}`);
+          } else {
+            // Redirect to first organization dashboard
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const firstOrg = (session.user as any).organizations[0];
+            router.push(`/${firstOrg.slug}/dashboard`);
+          }
         } else {
-          // Redirect to setup page to create organization
-          router.push('/setup');
+          // If user came from invitation, redirect to accept invite first
+          if (inviteToken) {
+            router.push(`/accept-invite?token=${inviteToken}`);
+          } else {
+            // Redirect to setup page to create organization
+            router.push('/setup');
+          }
         }
       }
     } catch {
@@ -68,7 +80,9 @@ export default function SignIn() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn('google', { callbackUrl: '/setup' });
+      // Preserve invite token in callback URL
+      const callbackUrl = inviteToken ? `/accept-invite?token=${inviteToken}` : '/setup';
+      await signIn('google', { callbackUrl });
     } catch {
       setError('An error occurred with Google sign in.');
     } finally {

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { signIn } from 'next-auth/react';
 import { FcGoogle } from 'react-icons/fc';
@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { acceptInvitationAction } from '@/actions/team-actions';
 
 export default function SignUp() {
   const [formData, setFormData] = useState({
@@ -24,7 +26,18 @@ export default function SignUp() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get('invite');
+
+  // Pre-fill email if coming from invitation
+  useEffect(() => {
+    if (inviteToken) {
+      // We could fetch invitation details to pre-fill email, but for now we'll just show a message
+      setSuccess('You have been invited to join an organization. Please create your account to accept the invitation.');
+    }
+  }, [inviteToken]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -37,6 +50,7 @@ export default function SignUp() {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setSuccess('');
 
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
@@ -73,13 +87,56 @@ export default function SignUp() {
 
       const responseData = await response.json();
       
-      // Show success message and don't auto-login
-      setError(`Account created successfully! ${responseData.message}`);
-      
-      // Redirect to signin page after a delay
-      setTimeout(() => {
-        router.push('/auth/signin');
-      }, 3000);
+      // If user came from invitation, auto-accept it after successful signup
+      if (inviteToken) {
+        try {
+          // Sign in the user first
+          const signInResult = await signIn('credentials', {
+            email: formData.email,
+            password: formData.password,
+            redirect: false,
+          });
+
+          if (signInResult?.ok) {
+            // Accept the invitation
+            const inviteResult = await acceptInvitationAction({ token: inviteToken });
+            
+            if (inviteResult?.data?.success) {
+              setSuccess(`Account created successfully! ${inviteResult.data.message}`);
+              // Redirect to organization dashboard
+              setTimeout(() => {
+                if (inviteResult.data.organizationSlug) {
+                  router.push(`/${inviteResult.data.organizationSlug}/dashboard`);
+                } else {
+                  router.push('/dashboard');
+                }
+              }, 2000);
+            } else {
+              setSuccess('Account created successfully! Please sign in to accept your invitation.');
+              setTimeout(() => {
+                router.push('/auth/signin');
+              }, 3000);
+            }
+          } else {
+            setSuccess('Account created successfully! Please sign in to accept your invitation.');
+            setTimeout(() => {
+              router.push('/auth/signin');
+            }, 3000);
+          }
+        } catch (inviteError) {
+          console.error('Error accepting invitation:', inviteError);
+          setSuccess('Account created successfully! Please sign in to accept your invitation.');
+          setTimeout(() => {
+            router.push('/auth/signin');
+          }, 3000);
+        }
+      } else {
+        // Normal signup flow
+        setSuccess(`Account created successfully! ${responseData.message}`);
+        setTimeout(() => {
+          router.push('/auth/signin');
+        }, 3000);
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred. Please try again.');
     } finally {
@@ -90,7 +147,9 @@ export default function SignUp() {
   const handleGoogleSignUp = async () => {
     setIsLoading(true);
     try {
-      await signIn('google', { callbackUrl: '/setup' });
+      // Preserve invite token in callback URL
+      const callbackUrl = inviteToken ? `/accept-invite?token=${inviteToken}` : '/setup';
+      await signIn('google', { callbackUrl });
     } catch {
       setError('An error occurred with Google sign up.');
     } finally {
@@ -167,8 +226,15 @@ export default function SignUp() {
                       required
                     />
                   </div>
+                  {success && (
+                    <Alert>
+                      <AlertDescription>{success}</AlertDescription>
+                    </Alert>
+                  )}
                   {error && (
-                    <p className="text-sm text-red-500">{error}</p>
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                   )}
                   <Button type="submit" className="mt-2 w-full" disabled={isLoading}>
                     {isLoading ? 'Creating account...' : 'Create account'}
