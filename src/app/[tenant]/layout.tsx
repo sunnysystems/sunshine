@@ -28,6 +28,15 @@ export default async function TenantLayout({
   const { tenant } = await params;
   
   // Check if user has access to this tenant
+  debugDatabase('Session object received', { 
+    hasSession: !!session,
+    hasUser: !!session?.user,
+    userEmail: session?.user?.email,
+    userId: session?.user?.id,
+    sessionKeys: Object.keys(session || {}),
+    userKeys: Object.keys(session?.user || {})
+  });
+  
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (session.user as any)?.id || '';
   
