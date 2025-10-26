@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 
+import { debugDatabase, logError } from './debug';
 import { TenantContext } from './tenant-utils';
 
 /**
@@ -57,36 +58,78 @@ export async function checkTenantAccess(
   userId: string
 ): Promise<{ hasAccess: boolean; role?: string }> {
   try {
+    debugDatabase('Checking tenant access', { tenant, userId });
+    
     const { supabaseAdmin } = await import('./supabase');
     
     // Get organization by slug
+    debugDatabase('Looking up organization by slug', { tenant });
     const { data: org, error: orgError } = await supabaseAdmin
       .from('organizations')
-      .select('id')
+      .select('id, name, slug')
       .eq('slug', tenant)
       .single();
     
-    if (orgError || !org) {
+    if (orgError) {
+      debugDatabase('Organization lookup failed', { 
+        tenant, 
+        error: orgError.message,
+        code: orgError.code 
+      });
       return { hasAccess: false };
     }
     
+    if (!org) {
+      debugDatabase('Organization not found', { tenant });
+      return { hasAccess: false };
+    }
+    
+    debugDatabase('Organization found', { 
+      tenant, 
+      orgId: org.id, 
+      orgName: org.name 
+    });
+    
     // Check user membership
+    debugDatabase('Checking user membership', { userId, orgId: org.id });
     const { data: membership, error: memberError } = await supabaseAdmin
       .from('organization_members')
-      .select('role, status')
+      .select('role, status, created_at')
       .eq('user_id', userId)
       .eq('organization_id', org.id)
       .eq('status', 'active')
       .single();
     
-    if (memberError || !membership) {
+    if (memberError) {
+      debugDatabase('Membership lookup failed', { 
+        userId, 
+        orgId: org.id,
+        error: memberError.message,
+        code: memberError.code 
+      });
       return { hasAccess: false };
     }
     
-    return { hasAccess: true, role: membership.role };
+    if (!membership) {
+      debugDatabase('No active membership found', { userId, orgId: org.id });
+      return { hasAccess: false };
+    }
+    
+    debugDatabase('Membership found', { 
+      userId, 
+      orgId: org.id, 
+      role: membership.role, 
+      status: membership.status,
+      joinedAt: membership.created_at 
+    });
+    
+    return { 
+      hasAccess: true, 
+      role: membership.role 
+    };
+    
   } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error('Error checking tenant access:', error);
+    logError(error, 'checkTenantAccess');
     return { hasAccess: false };
   }
 }
