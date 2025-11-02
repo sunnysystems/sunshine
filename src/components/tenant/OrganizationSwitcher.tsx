@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { ChevronDown, Building2, Plus } from 'lucide-react';
+import { ChevronDown, Building2, Plus, Settings } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -32,6 +33,9 @@ export function OrganizationSwitcher({ currentOrganization }: OrganizationSwitch
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const organizations = (session?.user as any)?.organizations || [];
+  
+  // Check if user is owner or admin to show settings
+  const canManageOrg = currentOrganization?.role === 'owner' || currentOrganization?.role === 'admin';
 
   const handleOrganizationChange = (orgSlug: string) => {
     // Extract the current path without the organization prefix
@@ -102,6 +106,21 @@ export function OrganizationSwitcher({ currentOrganization }: OrganizationSwitch
           </DropdownMenuItem>
         ))}
         
+        {canManageOrg && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href={`/${currentOrganization.slug}/settings`}>
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className="text-xs">
+                    <Settings className="h-3 w-3" />
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm">Organization Settings</span>
+              </Link>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleCreateOrganization}

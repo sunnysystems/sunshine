@@ -8,15 +8,14 @@ import {
   Users,
   UserPlus,
   CreditCard,
-  Settings,
   BarChart3,
   Key,
   Webhook,
+  User,
 } from 'lucide-react';
 
 import { useTenant } from './TenantProvider';
 
-import { debugDatabase } from '@/lib/debug';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -69,11 +68,14 @@ const navItems: NavItem[] = [
     icon: Webhook,
     roles: ['owner', 'admin'],
   },
+];
+
+const personalNavItems: NavItem[] = [
   {
-    title: 'Settings',
-    href: '/settings',
-    icon: Settings,
-    roles: ['owner', 'admin'],
+    title: 'Profile',
+    href: '/profile',
+    icon: User,
+    roles: ['owner', 'admin', 'member'],
   },
 ];
 
@@ -81,25 +83,38 @@ export function TenantSidebar() {
   const { tenant, role } = useTenant();
   const pathname = usePathname();
 
-  debugDatabase('TenantSidebar rendering', { 
-    tenant, 
-    role, 
-    pathname,
-    allNavItems: navItems.map(item => ({ title: item.title, href: item.href, roles: item.roles }))
-  });
-
   const filteredNavItems = navItems.filter(item => item.roles.includes(role));
-  
-  debugDatabase('Filtered nav items', { 
-    role, 
-    filteredItems: filteredNavItems.map(item => ({ title: item.title, href: item.href }))
-  });
+  const filteredPersonalNavItems = personalNavItems.filter(item => item.roles.includes(role));
 
   return (
-    <aside className="w-64 border-r bg-background">
-      <div className="p-4">
+    <aside className="w-64 border-r bg-background flex flex-col">
+      <div className="p-4 flex-1">
         <nav className="space-y-2">
           {filteredNavItems.map((item) => {
+            const isActive = pathname === `/${tenant}${item.href}`;
+            const Icon = item.icon;
+            
+            return (
+              <Link
+                key={item.href}
+                href={`/${tenant}${item.href}`}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                  isActive
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground'
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {item.title}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+      <div className="p-4 border-t">
+        <nav className="space-y-2">
+          {filteredPersonalNavItems.map((item) => {
             const isActive = pathname === `/${tenant}${item.href}`;
             const Icon = item.icon;
             

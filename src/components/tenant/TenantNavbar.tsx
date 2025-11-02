@@ -1,6 +1,7 @@
 'use client';
 
-import { LogOut, Settings, User } from 'lucide-react';
+import Link from 'next/link';
+import { LogOut, Settings } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
 
 import { useTenant } from './TenantProvider';
@@ -61,13 +62,11 @@ export function TenantNavbar() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  <User className="mr-2 h-4 w-4" />
-                  <span>Profile</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Settings</span>
+                <DropdownMenuItem asChild>
+                  <Link href={`/${tenant}/profile`}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Profile & Settings</span>
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut}>

@@ -8,6 +8,8 @@ A production-ready multi-tenant SaaS scaffolding built with Next.js 15, Supabase
 - ✅ **Multi-tenant Architecture** - Subdomain-based tenant routing (`company.app.com`)
 - ✅ **Secure Authentication** - NextAuth.js with email verification, password reset, and 2FA
 - ✅ **User Management** - Role-based access control (owner/admin/member)
+- ✅ **Team Management** - Email invitations, role management, and member control
+- ✅ **User Profile & Settings** - Complete profile management, password change, 2FA, theme preferences
 - ✅ **Database** - Supabase with Row Level Security (RLS) policies
 - ✅ **Billing** - Stripe integration for subscriptions and payments
 - ✅ **Email System** - Resend.com integration for verification and notifications
@@ -283,10 +285,10 @@ For questions and support:
 
 ## Roadmap
 
-- [ ] Email invitation system
+- ✅ **Email invitation system** - Team member invitations with email verification
+- ✅ **User Profile & Settings** - Complete profile management with 2FA, theme, and preferences
 - [ ] Advanced analytics dashboard
 - [ ] API documentation
+- [ ] Advanced billing features (usage limits, plan management)
 - [ ] Mobile app support
 - [ ] White-label customization
-- [ ] Advanced billing features
-- [ ] Multi-language support
