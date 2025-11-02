@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import { Check, CreditCard, Download } from 'lucide-react';
 
@@ -64,6 +64,11 @@ const availablePlans = [
 
 export default function BillingPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [nextBillingDate, setNextBillingDate] = useState<string>('');
+
+  useEffect(() => {
+    setNextBillingDate(new Date(currentPlan.nextBillingDate).toLocaleDateString());
+  }, []);
 
   const handleUpgrade = async (planName: string) => {
     setIsLoading(true);
@@ -126,7 +131,7 @@ export default function BillingPage() {
                 </span>
               </p>
               <p className="text-sm text-muted-foreground mt-2">
-                Next billing date: {new Date(currentPlan.nextBillingDate).toLocaleDateString()}
+                Next billing date: {nextBillingDate || 'Loading...'}
               </p>
             </div>
             <div className="space-y-2">

@@ -100,6 +100,56 @@ export const acceptInvitationSchema = z.object({
 
 export type AcceptInvitationData = z.infer<typeof acceptInvitationSchema>
 
+// Profile schemas
+export const updateProfileSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+})
+
+export type UpdateProfileData = z.infer<typeof updateProfileSchema>
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/, 
+      "Password must contain uppercase, lowercase, number, and special character"),
+  confirmPassword: z.string(),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+})
+
+export type ChangePasswordData = z.infer<typeof changePasswordSchema>
+
+export const updatePreferencesSchema = z.object({
+  language: z.enum(["pt-BR", "en-US"]),
+  theme: z.enum(["light", "dark", "system"]),
+})
+
+export type UpdatePreferencesData = z.infer<typeof updatePreferencesSchema>
+
+export const enable2FASchema = z.object({
+  verificationCode: z.string().length(6, "Verification code must be 6 digits")
+    .regex(/^\d+$/, "Verification code must be numeric"),
+})
+
+export type Enable2FAData = z.infer<typeof enable2FASchema>
+
+export const disable2FASchema = z.object({
+  password: z.string().min(1, "Password is required"),
+})
+
+export type Disable2FAData = z.infer<typeof disable2FASchema>
+
+export const deleteAccountSchema = z.object({
+  confirmText: z.literal("DELETE", {
+    errorMap: () => ({ message: "You must type DELETE to confirm" }),
+  }),
+  password: z.string().min(1, "Password is required"),
+})
+
+export type DeleteAccountData = z.infer<typeof deleteAccountSchema>
+
 // Default form schema (for backward compatibility)
 export const formSchema = contactFormSchema
 export type FormData = ContactFormData
