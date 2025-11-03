@@ -1,9 +1,18 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
 import { useMemo } from 'react';
 
+import { useSession } from 'next-auth/react';
+
 import { translations, type Language } from '@/lib/translations';
+
+interface UserPreferences {
+  language?: Language;
+}
+
+interface SessionUser {
+  preferences?: UserPreferences;
+}
 
 export function useTranslation() {
   const { data: session } = useSession();
@@ -11,7 +20,7 @@ export function useTranslation() {
   // Get user's language preference from session or default to pt-BR
   const language: Language = useMemo(() => {
     if (session?.user && 'preferences' in session.user) {
-      const prefs = (session.user as any).preferences;
+      const prefs = (session.user as SessionUser).preferences;
       if (prefs?.language === 'pt-BR' || prefs?.language === 'en-US') {
         return prefs.language;
       }
@@ -20,7 +29,7 @@ export function useTranslation() {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('language');
       if (stored === 'pt-BR' || stored === 'en-US') {
-        return stored;
+        return stored as Language;
       }
     }
     return 'pt-BR';
@@ -31,6 +40,7 @@ export function useTranslation() {
     
     return (path: string): string => {
       const keys = path.split('.');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let value: any = translations_data;
       
       for (const key of keys) {

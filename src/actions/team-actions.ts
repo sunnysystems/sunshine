@@ -2,10 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
-import { sendInvitationEmail, sendOwnershipTransferEmail } from "@/lib/email";
+import { randomBytes } from "crypto";
+
 import { actionClient } from "./safe-action";
+
+import { authOptions } from "@/lib/auth";
+import { debugDatabase, logError } from "@/lib/debug";
+import { sendInvitationEmail, sendOwnershipTransferEmail } from "@/lib/email";
 import { 
   inviteMemberSchema, 
   updateMemberRoleSchema, 
@@ -15,8 +18,7 @@ import {
   acceptInvitationSchema 
 } from "@/lib/form-schema";
 import { canInviteMembers, canManageMembers, canChangeRoles, canRemoveMembers } from "@/lib/permissions";
-import { debugDatabase, logError } from "@/lib/debug";
-import { randomBytes } from "crypto";
+import { supabaseAdmin } from "@/lib/supabase";
 
 // Types for team data
 export interface TeamMember {
@@ -54,43 +56,6 @@ async function getUserOrganizationContextById(userId: string, organizationId: st
 
   if (orgError || !org) {
     debugDatabase('Organization not found', { organizationId, error: orgError });
-    throw new Error('Organization not found');
-  }
-
-  // Get user's membership
-  const { data: membership, error: membershipError } = await supabaseAdmin
-    .from('organization_members')
-    .select('role, status')
-    .eq('user_id', userId)
-    .eq('organization_id', org.id)
-    .single();
-
-  if (membershipError || !membership) {
-    debugDatabase('User membership not found', { userId, orgId: org.id, error: membershipError });
-    throw new Error('User not found in organization');
-  }
-
-  return {
-    organizationId: org.id,
-    organizationName: org.name,
-    userRole: membership.role as 'owner' | 'admin' | 'member',
-    userStatus: membership.status
-  };
-}
-
-// Helper function to get user's organization and role by tenant slug
-async function getUserOrganizationContext(userId: string, tenant: string) {
-  debugDatabase('Getting user organization context', { userId, tenant });
-  
-  // Get organization by slug
-  const { data: org, error: orgError } = await supabaseAdmin
-    .from('organizations')
-    .select('id, name, slug')
-    .eq('slug', tenant)
-    .single();
-
-  if (orgError || !org) {
-    debugDatabase('Organization not found', { tenant, error: orgError });
     throw new Error('Organization not found');
   }
 
@@ -445,8 +410,10 @@ export const transferOwnershipAction = actionClient
         .single();
 
       const previousOwnerName = currentOwnerUser?.name || 'The previous owner';
-      const newOwnerName = (newOwnerMember.users as any)?.name || 'User';
-      const newOwnerEmail = (newOwnerMember.users as any)?.email;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const newOwnerUsers = newOwnerMember.users as { name?: string; email?: string } | null;
+      const newOwnerName = newOwnerUsers?.name || 'User';
+      const newOwnerEmail = newOwnerUsers?.email;
 
       // Use a transaction to ensure atomicity
       // Step 1: Demote current owner to admin
@@ -604,6 +571,7 @@ export const getTeamMembersAction = actionClient
       }
 
       // Get user's first organization from session
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const organizations = (session.user as any)?.organizations || [];
       if (organizations.length === 0) {
         throw new Error('No organizations found');
@@ -679,6 +647,7 @@ export const getPendingInvitationsAction = actionClient
       }
 
       // Get user's first organization from session
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const organizations = (session.user as any)?.organizations || [];
       if (organizations.length === 0) {
         throw new Error('No organizations found');

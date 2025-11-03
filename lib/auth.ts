@@ -222,7 +222,8 @@ export const authOptions = {
               id,
               name,
               slug,
-              plan
+              plan,
+              logo_url
             )
           `)
           .eq('user_id', token.sub)
@@ -233,6 +234,7 @@ export const authOptions = {
           name: member.organizations.name,
           slug: member.organizations.slug,
           plan: member.organizations.plan,
+          logo_url: member.organizations.logo_url,
           role: member.role,
         })) || [];
 
