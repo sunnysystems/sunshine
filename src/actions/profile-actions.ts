@@ -403,11 +403,12 @@ export const getUserProfileAction = actionClient
         throw new Error('User not found');
       }
 
-      // Get organization count and check if user is owner
-      await supabaseAdmin
+      // Get organization count
+      const { data: organizations } = await supabaseAdmin
         .from('organization_members')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', session.user.id);
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active');
 
       // Get owner count
       const { data: ownerMemberships } = await supabaseAdmin
