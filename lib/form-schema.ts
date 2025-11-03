@@ -87,6 +87,13 @@ export const removeMemberSchema = z.object({
 
 export type RemoveMemberData = z.infer<typeof removeMemberSchema>
 
+export const transferOwnershipSchema = z.object({
+  newOwnerMemberId: z.string().uuid("Invalid member ID"),
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type TransferOwnershipData = z.infer<typeof transferOwnershipSchema>
+
 export const invitationActionSchema = z.object({
   invitationId: z.string().uuid("Invalid invitation ID"),
   organizationId: z.string().uuid("Invalid organization ID"),

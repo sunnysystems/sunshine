@@ -50,7 +50,8 @@ export function OrganizationSwitcher({ currentOrganization }: OrganizationSwitch
     setIsOpen(false);
   };
 
-  if (!currentOrganization || organizations.length === 0) {
+  // Show organization switcher if we have organizations OR if we're on the setup page
+  if (organizations.length === 0 && pathname !== '/setup') {
     return null;
   }
 
@@ -67,10 +68,16 @@ export function OrganizationSwitcher({ currentOrganization }: OrganizationSwitch
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col items-start">
-            <span className="text-sm font-medium">{currentOrganization.name}</span>
-            <span className="text-xs text-muted-foreground capitalize">
-              {currentOrganization.role}
-            </span>
+            {currentOrganization ? (
+              <>
+                <span className="text-sm font-medium">{currentOrganization.name}</span>
+                <span className="text-xs text-muted-foreground capitalize">
+                  {currentOrganization.role}
+                </span>
+              </>
+            ) : (
+              <span className="text-sm font-medium">Create Organization</span>
+            )}
           </div>
           <ChevronDown className="h-4 w-4 ml-auto" />
         </Button>
@@ -100,13 +107,13 @@ export function OrganizationSwitcher({ currentOrganization }: OrganizationSwitch
                 {org.role}
               </span>
             </div>
-            {org.slug === currentOrganization.slug && (
+            {currentOrganization && org.slug === currentOrganization.slug && (
               <div className="ml-auto h-2 w-2 rounded-full bg-primary" />
             )}
           </DropdownMenuItem>
         ))}
         
-        {canManageOrg && (
+        {canManageOrg && currentOrganization && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>

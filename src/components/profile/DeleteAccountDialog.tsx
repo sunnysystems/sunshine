@@ -34,9 +34,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface DeleteAccountDialogProps {
   children: React.ReactNode;
+  isOwnerOfAnyOrg: boolean;
 }
 
-export function DeleteAccountDialog({ children }: DeleteAccountDialogProps) {
+export function DeleteAccountDialog({ children, isOwnerOfAnyOrg }: DeleteAccountDialogProps) {
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [confirmedDelete, setConfirmedDelete] = useState(false);
@@ -90,95 +91,125 @@ export function DeleteAccountDialog({ children }: DeleteAccountDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <Alert variant="destructive" className="mb-4">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            This will permanently delete your account, all your data, and your organization memberships.
-          </AlertDescription>
-        </Alert>
+        {isOwnerOfAnyOrg && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              You cannot delete your account while you are an owner of one or more organizations. 
+              Please transfer ownership to another member first.
+            </AlertDescription>
+          </Alert>
+        )}
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="confirmText"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type DELETE to confirm</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="DELETE"
-                      {...field}
-                      onChange={(e) => {
-                        field.onChange(e.target.value);
-                        // Auto-update confirmedDelete based on input
-                        if (e.target.value === 'DELETE' && confirmedDelete) {
-                          setConfirmedDelete(true);
-                        }
-                      }}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        {!isOwnerOfAnyOrg && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              This will permanently delete your account, all your data, and your organization memberships.
+            </AlertDescription>
+          </Alert>
+        )}
 
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Current Password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Enter your current password"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="confirm-checkbox"
-                checked={confirmedDelete}
-                onCheckedChange={setConfirmedDelete}
+        {!isOwnerOfAnyOrg && (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="confirmText"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type DELETE to confirm</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="DELETE"
+                        {...field}
+                        onChange={(e) => {
+                          field.onChange(e.target.value);
+                          // Auto-update confirmedDelete based on input
+                          if (e.target.value === 'DELETE' && confirmedDelete) {
+                            setConfirmedDelete(true);
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-              <label
-                htmlFor="confirm-checkbox"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                I understand this action is irreversible
-              </label>
-            </div>
 
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setOpen(false);
-                  form.reset();
-                  setConfirmedDelete(false);
-                }}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="destructive"
-                disabled={isLoading || !confirmedDelete}
-              >
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Delete Account Permanently
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Current Password</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="Enter your current password"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="confirm-checkbox"
+                  checked={confirmedDelete}
+                  onCheckedChange={setConfirmedDelete}
+                />
+                <label
+                  htmlFor="confirm-checkbox"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  I understand this action is irreversible
+                </label>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setOpen(false);
+                    form.reset();
+                    setConfirmedDelete(false);
+                  }}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={isLoading || !confirmedDelete}
+                >
+                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Delete Account Permanently
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
+
+        {isOwnerOfAnyOrg && (
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                form.reset();
+                setConfirmedDelete(false);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

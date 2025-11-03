@@ -45,6 +45,7 @@ interface UserProfileData {
   themePreference: 'light' | 'dark' | 'system';
   mfaEnabled: boolean;
   organizationCount: number;
+  isOwnerOfAnyOrg: boolean;
 }
 
 export default function ProfilePage() {
@@ -407,11 +408,17 @@ export default function ProfilePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DeleteAccountDialog>
-                <Button variant="destructive" className="w-full">
+              <DeleteAccountDialog isOwnerOfAnyOrg={profileData?.isOwnerOfAnyOrg || false}>
+                <Button variant="destructive" className="w-full" disabled={profileData?.isOwnerOfAnyOrg}>
                   Delete My Account
                 </Button>
               </DeleteAccountDialog>
+              {profileData?.isOwnerOfAnyOrg && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  You cannot delete your account while you are an owner of an organization. 
+                  Please transfer ownership to another member first.
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

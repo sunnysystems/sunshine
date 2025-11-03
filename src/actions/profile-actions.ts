@@ -340,6 +340,23 @@ export const deleteAccountAction = actionClient
         throw new Error('Password is incorrect');
       }
 
+      // Check if user is owner of any organization
+      const { data: ownerMemberships, error: ownerError } = await supabaseAdmin
+        .from('organization_members')
+        .select('id, role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'owner')
+        .eq('status', 'active');
+
+      if (ownerError) {
+        debugDatabase('Failed to check owner status', { error: ownerError });
+        throw new Error('Failed to verify organization ownership');
+      }
+
+      if (ownerMemberships && ownerMemberships.length > 0) {
+        throw new Error('You cannot delete your account while you are an owner of one or more organizations. Please transfer ownership to another member first.');
+      }
+
       // Delete user (cascade will handle related records)
       const { error: deleteError } = await supabaseAdmin
         .from('users')
@@ -383,11 +400,19 @@ export const getUserProfileAction = actionClient
         throw new Error('User not found');
       }
 
-      // Get organization count
+      // Get organization count and check if user is owner
       const { data: organizations, error: orgError } = await supabaseAdmin
         .from('organization_members')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', session.user.id);
+
+      // Get owner count
+      const { data: ownerMemberships, error: ownerError } = await supabaseAdmin
+        .from('organization_members')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('role', 'owner')
+        .eq('status', 'active');
 
       return {
         success: true,
@@ -401,6 +426,7 @@ export const getUserProfileAction = actionClient
           themePreference: user.theme_preference || 'system',
           mfaEnabled: user.mfa_enabled || false,
           organizationCount: organizations?.length || 0,
+          isOwnerOfAnyOrg: (ownerMemberships?.length || 0) > 0,
         },
       };
     } catch (error) {

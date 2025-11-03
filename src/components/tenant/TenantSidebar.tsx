@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
-  UserPlus,
   CreditCard,
   BarChart3,
   Key,
@@ -39,12 +38,6 @@ const navItems: NavItem[] = [
     roles: ['owner', 'admin'],
   },
   {
-    title: 'Invite',
-    href: '/invite',
-    icon: UserPlus,
-    roles: ['owner', 'admin'],
-  },
-  {
     title: 'Billing',
     href: '/billing',
     icon: CreditCard,
@@ -68,9 +61,6 @@ const navItems: NavItem[] = [
     icon: Webhook,
     roles: ['owner', 'admin'],
   },
-];
-
-const personalNavItems: NavItem[] = [
   {
     title: 'Profile',
     href: '/profile',
@@ -84,37 +74,12 @@ export function TenantSidebar() {
   const pathname = usePathname();
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(role));
-  const filteredPersonalNavItems = personalNavItems.filter(item => item.roles.includes(role));
 
   return (
     <aside className="w-64 border-r bg-background flex flex-col">
       <div className="p-4 flex-1">
         <nav className="space-y-2">
           {filteredNavItems.map((item) => {
-            const isActive = pathname === `/${tenant}${item.href}`;
-            const Icon = item.icon;
-            
-            return (
-              <Link
-                key={item.href}
-                href={`/${tenant}${item.href}`}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
-                  isActive
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.title}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
-      <div className="p-4 border-t">
-        <nav className="space-y-2">
-          {filteredPersonalNavItems.map((item) => {
             const isActive = pathname === `/${tenant}${item.href}`;
             const Icon = item.icon;
             

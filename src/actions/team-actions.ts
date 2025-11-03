@@ -10,6 +10,7 @@ import {
   inviteMemberSchema, 
   updateMemberRoleSchema, 
   removeMemberSchema, 
+  transferOwnershipSchema,
   invitationActionSchema,
   acceptInvitationSchema 
 } from "@/lib/form-schema";
@@ -40,7 +41,44 @@ export interface PendingInvitation {
   createdAt: string;
 }
 
-// Helper function to get user's organization and role
+// Helper function to get user's organization and role by organization ID
+async function getUserOrganizationContextById(userId: string, organizationId: string) {
+  debugDatabase('Getting user organization context by ID', { userId, organizationId });
+  
+  // Get organization by ID
+  const { data: org, error: orgError } = await supabaseAdmin
+    .from('organizations')
+    .select('id, name, slug')
+    .eq('id', organizationId)
+    .single();
+
+  if (orgError || !org) {
+    debugDatabase('Organization not found', { organizationId, error: orgError });
+    throw new Error('Organization not found');
+  }
+
+  // Get user's membership
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from('organization_members')
+    .select('role, status')
+    .eq('user_id', userId)
+    .eq('organization_id', org.id)
+    .single();
+
+  if (membershipError || !membership) {
+    debugDatabase('User membership not found', { userId, orgId: org.id, error: membershipError });
+    throw new Error('User not found in organization');
+  }
+
+  return {
+    organizationId: org.id,
+    organizationName: org.name,
+    userRole: membership.role as 'owner' | 'admin' | 'member',
+    userStatus: membership.status
+  };
+}
+
+// Helper function to get user's organization and role by tenant slug
 async function getUserOrganizationContext(userId: string, tenant: string) {
   debugDatabase('Getting user organization context', { userId, tenant });
   
@@ -90,7 +128,7 @@ export const inviteMemberAction = actionClient
       const { email, role, organizationId } = parsedInput;
       
       // Get user's organization context
-      const { userRole, organizationName } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole, organizationName } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canInviteMembers(userRole)) {
@@ -192,7 +230,7 @@ export const resendInvitationAction = actionClient
       const { invitationId, organizationId } = parsedInput;
       
       // Get user's organization context
-      const { userRole, organizationName } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole, organizationName } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canManageMembers(userRole)) {
@@ -252,7 +290,7 @@ export const cancelInvitationAction = actionClient
       const { invitationId, organizationId } = parsedInput;
       
       // Get user's organization context
-      const { userRole } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canManageMembers(userRole)) {
@@ -298,7 +336,7 @@ export const removeMemberAction = actionClient
       const { memberId, organizationId } = parsedInput;
       
       // Get user's organization context
-      const { userRole } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Get member details
       const { data: member, error: memberError } = await supabaseAdmin
@@ -362,6 +400,92 @@ export const removeMemberAction = actionClient
     }
   });
 
+// Transfer ownership action
+export const transferOwnershipAction = actionClient
+  .inputSchema(transferOwnershipSchema)
+  .action(async ({ parsedInput }) => {
+    try {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.id) {
+        throw new Error('Unauthorized');
+      }
+
+      const { newOwnerMemberId, organizationId } = parsedInput;
+      
+      // Get current user's organization context
+      const { userRole: currentUserRole } = await getUserOrganizationContextById(session.user.id, organizationId);
+      
+      // Only owners can transfer ownership
+      if (currentUserRole !== 'owner') {
+        throw new Error('Only organization owners can transfer ownership');
+      }
+
+      // Get new owner member details
+      const { data: newOwnerMember, error: newOwnerError } = await supabaseAdmin
+        .from('organization_members')
+        .select('user_id, role')
+        .eq('id', newOwnerMemberId)
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (newOwnerError || !newOwnerMember) {
+        throw new Error('Member not found');
+      }
+
+      // Cannot transfer to yourself
+      if (newOwnerMember.user_id === session.user.id) {
+        throw new Error('You are already the owner');
+      }
+
+      // Use a transaction to ensure atomicity
+      // Step 1: Demote current owner to admin
+      const { error: demoteError } = await supabaseAdmin
+        .from('organization_members')
+        .update({ role: 'admin' })
+        .eq('user_id', session.user.id)
+        .eq('organization_id', organizationId)
+        .eq('role', 'owner');
+
+      if (demoteError) {
+        debugDatabase('Failed to demote current owner', { error: demoteError });
+        throw new Error('Failed to transfer ownership');
+      }
+
+      // Step 2: Promote new owner
+      const { error: promoteError } = await supabaseAdmin
+        .from('organization_members')
+        .update({ role: 'owner' })
+        .eq('id', newOwnerMemberId)
+        .eq('organization_id', organizationId);
+
+      if (promoteError) {
+        debugDatabase('Failed to promote new owner', { error: promoteError });
+        // Rollback: try to restore current owner
+        await supabaseAdmin
+          .from('organization_members')
+          .update({ role: 'owner' })
+          .eq('user_id', session.user.id)
+          .eq('organization_id', organizationId);
+        throw new Error('Failed to transfer ownership');
+      }
+
+      debugDatabase('Ownership transferred successfully', { 
+        fromUserId: session.user.id, 
+        toUserId: newOwnerMember.user_id 
+      });
+
+      revalidatePath('/[tenant]/team', 'page');
+      
+      return {
+        success: true,
+        message: 'Ownership transferred successfully'
+      };
+    } catch (error) {
+      logError(error, 'transferOwnershipAction');
+      throw error;
+    }
+  });
+
 // Update member role action
 export const updateMemberRoleAction = actionClient
   .inputSchema(updateMemberRoleSchema)
@@ -375,7 +499,7 @@ export const updateMemberRoleAction = actionClient
       const { memberId, role, organizationId } = parsedInput;
       
       // Get user's organization context
-      const { userRole } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canChangeRoles(userRole)) {
@@ -444,6 +568,7 @@ export const updateMemberRoleAction = actionClient
   });
 
 // Get team members action
+// NOTE: This action is currently not used in the app - data is fetched directly in server components
 export const getTeamMembersAction = actionClient
   .action(async () => {
     try {
@@ -452,8 +577,15 @@ export const getTeamMembersAction = actionClient
         throw new Error('Unauthorized');
       }
 
+      // Get user's first organization from session
+      const organizations = (session.user as any)?.organizations || [];
+      if (organizations.length === 0) {
+        throw new Error('No organizations found');
+      }
+      const organizationId = organizations[0].id;
+
       // Get user's organization context
-      const { organizationId, userRole } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canManageMembers(userRole)) {
@@ -511,6 +643,7 @@ export const getTeamMembersAction = actionClient
   });
 
 // Get pending invitations action
+// NOTE: This action is currently not used in the app - data is fetched directly in server components
 export const getPendingInvitationsAction = actionClient
   .action(async () => {
     try {
@@ -519,8 +652,15 @@ export const getPendingInvitationsAction = actionClient
         throw new Error('Unauthorized');
       }
 
+      // Get user's first organization from session
+      const organizations = (session.user as any)?.organizations || [];
+      if (organizations.length === 0) {
+        throw new Error('No organizations found');
+      }
+      const organizationId = organizations[0].id;
+
       // Get user's organization context
-      const { organizationId, userRole } = await getUserOrganizationContext(session.user.id, 'trentas-org');
+      const { userRole } = await getUserOrganizationContextById(session.user.id, organizationId);
       
       // Check permissions
       if (!canManageMembers(userRole)) {

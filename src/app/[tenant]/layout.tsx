@@ -66,15 +66,10 @@ export default async function TenantLayout({
     notFound();
   }
 
-      // Check if user has multiple organizations to show navbar
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userOrganizations = (session.user as any)?.organizations || [];
-      const hasMultipleOrgs = userOrganizations.length > 1;
-
       return (
         <TenantProvider tenant={tenant} role={role || 'member'}>
           <div className="min-h-screen bg-background">
-            {hasMultipleOrgs && <TenantNavbar />}
+            <TenantNavbar />
             <div className="flex">
               <TenantSidebar />
               <main className="flex-1 p-6">
