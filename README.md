@@ -99,15 +99,25 @@ NEXT_PUBLIC_DEFAULT_LOGO_URL=/logo.svg
 1. Create a new Supabase project
 2. Run the migration files in order:
    ```sql
-   -- Run these in your Supabase SQL editor
+   -- Run these in your Supabase SQL editor in this exact order:
+   
    -- 1. Initial schema
    -- File: supabase/migrations/001_initial_schema.sql
    
-   -- 2. RLS policies
+   -- 2. Authentication enhancements
+   -- File: supabase/migrations/002_auth_enhancements.sql
+   
+   -- 3. User preferences and MFA settings
+   -- File: supabase/migrations/003_user_preferences.sql
+   
+   -- 4. Organization logo support
+   -- File: supabase/migrations/004_add_logo_url.sql
+   
+   -- 5. Row Level Security policies (must run after all migrations)
    -- File: supabase/policies/rls_policies.sql
    ```
 
-3. Enable Row Level Security on all tables
+3. Verify that Row Level Security is enabled on all tables (this is automatically done by step 5 above, but you can verify in Supabase dashboard)
 4. Set up authentication providers in Supabase dashboard
 
 #### Database Schema
@@ -118,14 +128,6 @@ The scaffolding includes these main tables:
 - `organization_members` - User-organization relationships with roles (owner/admin/member)
 - `invitations` - Email invitations with tokens
 - `subscriptions` - Stripe subscription data
-
-#### Running Migrations
-
-Run migrations in order:
-1. `001_initial_schema.sql` - Initial database schema
-2. `002_auth_enhancements.sql` - Authentication enhancements
-3. `003_user_preferences.sql` - User preferences and MFA settings
-4. `004_add_logo_url.sql` - Organization logo support
 
 #### Supabase Storage Setup
 
