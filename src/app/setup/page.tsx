@@ -31,14 +31,6 @@ export default function Setup() {
       router.push('/auth/signin');
       return;
     }
-
-    // If user already has organizations, redirect to dashboard
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (session.user && (session.user as any).organizations && (session.user as any).organizations.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const firstOrg = (session.user as any).organizations[0];
-      router.push(`/${firstOrg.slug}/dashboard`);
-    }
   }, [session, status, router]);
 
   const handleOrganizationNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,8 +88,8 @@ export default function Setup() {
 
       const organization = await response.json();
       
-      // Redirect to the new organization dashboard
-      router.push(`/${organization.slug}/dashboard`);
+      // Refresh session to get the new organization
+      window.location.href = `/${organization.slug}/dashboard`;
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred. Please try again.');
     } finally {

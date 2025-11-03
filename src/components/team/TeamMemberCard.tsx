@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { MoreHorizontal, UserMinus, Shield, ShieldCheck, Loader2 } from 'lucide-react';
+import { MoreHorizontal, UserMinus, Shield, ShieldCheck, Crown, Loader2 } from 'lucide-react';
 
 import { removeMemberAction, updateMemberRoleAction } from '@/actions/team-actions';
 import { TeamMember } from '@/actions/team-actions';
 import { canChangeRoles, canRemoveMembers } from '@/lib/permissions';
+import { TransferOwnershipDialog } from './TransferOwnershipDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -146,6 +147,14 @@ export function TeamMemberCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {currentUserRole === 'owner' && member.role !== 'owner' && (
+                  <TransferOwnershipDialog member={member} organizationId={organizationId}>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Crown className="mr-2 h-4 w-4" />
+                      Transfer Ownership
+                    </DropdownMenuItem>
+                  </TransferOwnershipDialog>
+                )}
                 {canChangeRole && member.role !== 'owner' && (
                   <>
                     {member.role === 'member' && (

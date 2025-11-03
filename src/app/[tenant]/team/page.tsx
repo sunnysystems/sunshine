@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getTeamMembersAction, getPendingInvitationsAction } from '@/actions/team-actions';
 import { canInviteMembers, canManageMembers } from '@/lib/permissions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { InviteMemberDialog } from '@/components/team/InviteMemberDialog';
@@ -32,14 +31,77 @@ export default async function TeamPage({ params }: TeamPageProps) {
     redirect(`/${tenant}/dashboard`);
   }
 
-  // Fetch team data
-  const [membersResult, invitationsResult] = await Promise.all([
-    getTeamMembersAction(),
-    getPendingInvitationsAction()
-  ]);
+  // Fetch team data directly
+  const { supabaseAdmin } = await import('@/lib/supabase');
+  const { debugDatabase } = await import('@/lib/debug');
+  
+  // Get team members with user details
+  const { data: membersData, error: membersError } = await supabaseAdmin
+    .from('organization_members')
+    .select(`
+      id,
+      user_id,
+      role,
+      status,
+      created_at,
+      users!organization_members_user_id_fkey (
+        name,
+        email,
+        avatar_url
+      )
+    `)
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false });
 
-  const members = membersResult?.data?.data || [];
-  const invitations = invitationsResult?.data?.data || [];
+  if (membersError) {
+    debugDatabase('Failed to fetch team members', { error: membersError });
+  }
+
+  const members = membersData?.map(member => ({
+    id: member.id,
+    userId: member.user_id,
+    name: member.users.name || 'Unknown',
+    email: member.users.email,
+    avatarUrl: member.users.avatar_url,
+    role: member.role as 'owner' | 'admin' | 'member',
+    status: member.status as 'active' | 'pending' | 'suspended',
+    joinedAt: member.created_at
+  })) || [];
+
+  // Get pending invitations
+  const { data: invitationsData, error: invitationsError } = await supabaseAdmin
+    .from('invitations')
+    .select(`
+      id,
+      email,
+      role,
+      token,
+      expires_at,
+      created_at,
+      invited_by,
+      users!invitations_invited_by_fkey (
+        name
+      )
+    `)
+    .eq('organization_id', organizationId)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+
+  if (invitationsError) {
+    debugDatabase('Failed to fetch pending invitations', { error: invitationsError });
+  }
+
+  const invitations = invitationsData?.map(invitation => ({
+    id: invitation.id,
+    email: invitation.email,
+    role: invitation.role as 'admin' | 'member',
+    token: invitation.token,
+    expiresAt: invitation.expires_at,
+    invitedBy: invitation.invited_by,
+    invitedByName: invitation.users?.name || 'Unknown',
+    createdAt: invitation.created_at
+  })) || [];
 
   return (
     <div className="space-y-6">

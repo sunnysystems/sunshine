@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { LogOut, Settings } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
 
@@ -22,6 +23,7 @@ import {
 export function TenantNavbar() {
   const { data: session } = useSession();
   const { tenant, role } = useTenant();
+  const pathname = usePathname();
 
   // Get current organization info
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,14 +63,19 @@ export function TenantNavbar() {
                     </p>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href={`/${tenant}/profile`}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>Profile & Settings</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+                {pathname !== '/setup' && tenant !== 'setup' && currentOrganization && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href={`/${currentOrganization.slug}/profile`}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Profile & Settings</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {(!currentOrganization || pathname === '/setup') && <DropdownMenuSeparator />}
                 <DropdownMenuItem onClick={handleSignOut}>
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Sign out</span>
