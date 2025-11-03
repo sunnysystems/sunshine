@@ -7,6 +7,7 @@ import { Footer } from "@/components/blocks/footer";
 import { SessionProvider } from "@/components/providers/SessionProvider";
 import { StyleGlideProvider } from "@/components/styleglide-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeInitializer } from "@/components/theme-initializer";
 import { ConditionalNavbar } from "@/components/ConditionalNavbar";
 import "@/styles/globals.css";
 
@@ -144,10 +145,11 @@ export default function RootLayout({
         <SessionProvider>
           <ThemeProvider
             attribute="class"
-            defaultTheme="light"
+            defaultTheme="system"
             enableSystem
             disableTransitionOnChange
           >
+            <ThemeInitializer />
             <StyleGlideProvider />
             <ConditionalNavbar />
             <main className="">{children}</main>

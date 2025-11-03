@@ -238,10 +238,23 @@ export const authOptions = {
           role: member.role,
         })) || [];
 
+        // Get user preferences for theme
+        const { data: userPreferences } = await supabaseAdmin
+          .from('users')
+          .select('preferences, theme_preference')
+          .eq('id', token.sub)
+          .single();
+
+        if (userPreferences) {
+          session.user.preferences = userPreferences.preferences || { language: 'pt-BR', theme: 'system' };
+          session.user.themePreference = userPreferences.theme_preference || 'system';
+        }
+
         debugAuth('Session updated', { 
           userId: session.user.id,
           organizationsCount: session.user.organizations.length,
-          sessionUserKeys: Object.keys(session.user)
+          sessionUserKeys: Object.keys(session.user),
+          themePreference: session.user.themePreference
         });
       } else {
         debugAuth('Session callback - no token.sub or session.user', { 

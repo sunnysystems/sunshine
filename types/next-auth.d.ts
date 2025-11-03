@@ -12,6 +12,11 @@ declare module "next-auth" {
         plan: string
         role: string
       }>
+      preferences?: {
+        language?: string
+        theme?: string
+      }
+      themePreference?: string
     }
   }
 

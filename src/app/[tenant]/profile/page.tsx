@@ -101,7 +101,20 @@ export default function ProfilePage() {
   };
 
   const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
+    // Update theme immediately for better UX
     setTheme(newTheme);
+    
+    // Update profile data state to reflect change
+    if (profileData) {
+      setProfileData({
+        ...profileData,
+        themePreference: newTheme,
+        preferences: {
+          ...profileData.preferences,
+          theme: newTheme,
+        },
+      });
+    }
     
     try {
       await updatePreferencesAction({
@@ -111,6 +124,9 @@ export default function ProfilePage() {
       toast.success('Theme preference updated');
     } catch (error) {
       console.error('Error updating theme:', error);
+      // Revert on error
+      setTheme(profileData?.themePreference || 'system');
+      toast.error('Failed to update theme preference');
     }
   };
 
@@ -323,7 +339,7 @@ export default function ProfilePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={theme} onValueChange={handleThemeChange}>
+              <RadioGroup value={profileData?.themePreference || theme || 'system'} onValueChange={handleThemeChange}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="light" id="light" />
                   <Label htmlFor="light" className="flex items-center gap-2 cursor-pointer">
