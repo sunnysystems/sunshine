@@ -238,16 +238,17 @@ export const authOptions = {
           role: member.role,
         })) || [];
 
-        // Get user preferences for theme
-        const { data: userPreferences } = await supabaseAdmin
+        // Get user preferences and avatar
+        const { data: userData } = await supabaseAdmin
           .from('users')
-          .select('preferences, theme_preference')
+          .select('preferences, theme_preference, avatar_url')
           .eq('id', token.sub)
           .single();
 
-        if (userPreferences) {
-          session.user.preferences = userPreferences.preferences || { language: 'pt-BR', theme: 'system' };
-          session.user.themePreference = userPreferences.theme_preference || 'system';
+        if (userData) {
+          session.user.preferences = userData.preferences || { language: 'pt-BR', theme: 'system' };
+          session.user.themePreference = userData.theme_preference || 'system';
+          session.user.image = userData.avatar_url || null; // Update image in session
         }
 
         debugAuth('Session updated', { 

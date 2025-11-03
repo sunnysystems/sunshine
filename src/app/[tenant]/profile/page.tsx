@@ -22,12 +22,12 @@ import { ChangePasswordDialog } from '@/components/profile/ChangePasswordDialog'
 import { Enable2FADialog } from '@/components/profile/Enable2FADialog';
 import { Disable2FADialog } from '@/components/profile/Disable2FADialog';
 import { DeleteAccountDialog } from '@/components/profile/DeleteAccountDialog';
+import { AvatarUpload } from '@/components/profile/AvatarUpload';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -44,6 +44,7 @@ interface UserProfileData {
   };
   themePreference: 'light' | 'dark' | 'system';
   mfaEnabled: boolean;
+  avatarUrl: string | null;
   organizationCount: number;
   isOwnerOfAnyOrg: boolean;
 }
@@ -204,19 +205,15 @@ export default function ProfilePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-20 w-20">
-                  <AvatarFallback className="text-lg">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="space-y-2">
-                  <h3 className="text-lg font-semibold">{profileData.name}</h3>
-                  <p className="text-muted-foreground">{profileData.email}</p>
-                  <Button variant="outline" size="sm" disabled>
-                    Change Avatar (Coming soon)
-                  </Button>
-                </div>
+              <AvatarUpload
+                userId={session?.user?.id || ''}
+                currentAvatarUrl={profileData.avatarUrl}
+                userEmail={profileData.email}
+                userName={profileData.name}
+              />
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">{profileData.name}</h3>
+                <p className="text-muted-foreground">{profileData.email}</p>
               </div>
 
               <div className="space-y-4 border-t pt-6">

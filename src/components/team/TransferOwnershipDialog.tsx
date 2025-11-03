@@ -7,6 +7,7 @@ import { Crown, Loader2, AlertTriangle } from 'lucide-react';
 import { transferOwnershipAction } from '@/actions/team-actions';
 import { TeamMember } from '@/actions/team-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getUserAvatarUrl } from '@/lib/avatar';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -88,7 +89,12 @@ export function TransferOwnershipDialog({
         <div className="border rounded-lg p-4 bg-muted/50">
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12">
-              <AvatarImage src={member.avatarUrl || ''} alt={member.name} />
+              {(() => {
+                const avatarUrl = getUserAvatarUrl(member.avatarUrl || null, member.email, 48);
+                return avatarUrl ? (
+                  <AvatarImage src={avatarUrl} alt={member.name} />
+                ) : null;
+              })()}
               <AvatarFallback>
                 {member.name.charAt(0).toUpperCase()}
               </AvatarFallback>

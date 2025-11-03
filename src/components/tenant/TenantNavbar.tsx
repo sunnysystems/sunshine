@@ -10,6 +10,7 @@ import { useTenant } from './TenantProvider';
 import { OrganizationSwitcher } from './OrganizationSwitcher';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getUserAvatarUrl } from '@/lib/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -61,7 +62,16 @@ export function TenantNavbar() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={session.user.image || ''} alt={session.user.name || ''} />
+                    {(() => {
+                      const avatarUrl = getUserAvatarUrl(
+                        session.user.image || null,
+                        session.user.email || '',
+                        32
+                      );
+                      return avatarUrl ? (
+                        <AvatarImage src={avatarUrl} alt={session.user.name || ''} />
+                      ) : null;
+                    })()}
                     <AvatarFallback>
                       {session.user.name?.charAt(0).toUpperCase() || session.user.email?.charAt(0).toUpperCase()}
                     </AvatarFallback>
