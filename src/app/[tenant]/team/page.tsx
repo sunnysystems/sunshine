@@ -135,6 +135,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
                           key={member.id}
                           member={member}
                           currentUserRole={userRole}
+                          currentUserId={session.user.id}
                           organizationId={organizationId}
                         />
                       ))}

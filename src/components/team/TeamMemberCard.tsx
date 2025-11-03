@@ -31,12 +31,14 @@ import {
 interface TeamMemberCardProps {
   member: TeamMember;
   currentUserRole: 'owner' | 'admin' | 'member';
+  currentUserId: string;
   organizationId: string;
 }
 
 export function TeamMemberCard({ 
   member, 
   currentUserRole, 
+  currentUserId,
   organizationId
 }: TeamMemberCardProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -102,7 +104,9 @@ export function TeamMemberCard({
   };
 
   const canChangeRole = canChangeRoles(currentUserRole);
-  const canRemove = canRemoveMembers(currentUserRole, member.role);
+  // Owner cannot remove themselves
+  const canRemove = canRemoveMembers(currentUserRole, member.role) && 
+                    !(currentUserRole === 'owner' && member.userId === currentUserId);
 
   return (
     <>
