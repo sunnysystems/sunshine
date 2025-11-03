@@ -9,6 +9,7 @@ import { TeamMember } from '@/actions/team-actions';
 import { canChangeRoles, canRemoveMembers } from '@/lib/permissions';
 import { TransferOwnershipDialog } from './TransferOwnershipDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getUserAvatarUrl } from '@/lib/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -119,7 +120,12 @@ export function TeamMemberCard({
       <div className="flex items-center justify-between p-4 border rounded-lg">
         <div className="flex items-center gap-4">
           <Avatar className="h-10 w-10">
-            <AvatarImage src={member.avatarUrl || ''} alt={member.name} />
+            {(() => {
+              const avatarUrl = getUserAvatarUrl(member.avatarUrl || null, member.email, 40);
+              return avatarUrl ? (
+                <AvatarImage src={avatarUrl} alt={member.name} />
+              ) : null;
+            })()}
             <AvatarFallback>
               {member.name.charAt(0).toUpperCase()}
             </AvatarFallback>

@@ -395,7 +395,7 @@ export const getUserProfileAction = actionClient
       // Get user data with preferences
       const { data: user, error: userError } = await supabaseAdmin
         .from('users')
-        .select('name, email, email_verified, created_at, last_login_at, preferences, theme_preference, mfa_enabled')
+        .select('name, email, email_verified, created_at, last_login_at, preferences, theme_preference, mfa_enabled, avatar_url')
         .eq('id', session.user.id)
         .single();
 
@@ -429,6 +429,7 @@ export const getUserProfileAction = actionClient
           preferences: user.preferences || { language: 'pt-BR', theme: 'system' },
           themePreference: user.theme_preference || 'system',
           mfaEnabled: user.mfa_enabled || false,
+          avatarUrl: user.avatar_url || null,
           organizationCount: organizations?.length || 0,
           isOwnerOfAnyOrg: (ownerMemberships?.length || 0) > 0,
         },
