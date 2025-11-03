@@ -31,12 +31,14 @@ import {
 interface TeamMemberCardProps {
   member: TeamMember;
   currentUserRole: 'owner' | 'admin' | 'member';
+  currentUserId: string;
   organizationId: string;
 }
 
 export function TeamMemberCard({ 
   member, 
   currentUserRole, 
+  currentUserId,
   organizationId
 }: TeamMemberCardProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -102,7 +104,15 @@ export function TeamMemberCard({
   };
 
   const canChangeRole = canChangeRoles(currentUserRole);
-  const canRemove = canRemoveMembers(currentUserRole, member.role);
+  // Owner cannot remove themselves
+  const canRemove = canRemoveMembers(currentUserRole, member.role) && 
+                    !(currentUserRole === 'owner' && member.userId === currentUserId);
+  
+  // Check if transfer ownership option is available
+  const canTransferOwnership = currentUserRole === 'owner' && member.role !== 'owner';
+  
+  // Only show menu if there are any actions available
+  const hasActions = canTransferOwnership || (canChangeRole && member.role !== 'owner') || canRemove;
 
   return (
     <>
@@ -135,7 +145,7 @@ export function TeamMemberCard({
               day: '2-digit'
             })}
           </span>
-          {(canChangeRole || canRemove) && (
+          {hasActions && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" disabled={isLoading}>
@@ -147,7 +157,7 @@ export function TeamMemberCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {currentUserRole === 'owner' && member.role !== 'owner' && (
+                {canTransferOwnership && (
                   <TransferOwnershipDialog member={member} organizationId={organizationId}>
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                       <Crown className="mr-2 h-4 w-4" />
