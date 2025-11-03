@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { LogOut, Settings } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
@@ -34,10 +35,23 @@ export function TenantNavbar() {
     signOut({ callbackUrl: '/' });
   };
 
+  const defaultLogoUrl = process.env.NEXT_PUBLIC_DEFAULT_LOGO_URL || '/logo.svg';
+  const logoUrl = currentOrganization?.logo_url || defaultLogoUrl;
+
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-4">
+          <Link href={currentOrganization ? `/${currentOrganization.slug}/dashboard` : '/'} className="flex-shrink-0">
+            <Image
+              src={logoUrl}
+              alt={currentOrganization?.name || 'Logo'}
+              width={120}
+              height={24}
+              className="h-6 w-auto dark:invert"
+              unoptimized
+            />
+          </Link>
           <OrganizationSwitcher currentOrganization={currentOrganization} />
         </div>
 

@@ -5,9 +5,10 @@ import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 
-import { authOptions } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
 import { actionClient } from "./safe-action";
+
+import { authOptions } from "@/lib/auth";
+import { debugDatabase, logError } from "@/lib/debug";
 import {
   updateProfileSchema,
   changePasswordSchema,
@@ -16,7 +17,7 @@ import {
   disable2FASchema,
   deleteAccountSchema,
 } from "@/lib/form-schema";
-import { debugDatabase, logError } from "@/lib/debug";
+import { supabaseAdmin } from "@/lib/supabase";
 
 // Update profile action
 export const updateProfileAction = actionClient
@@ -201,7 +202,9 @@ export const verifyAndEnableMFAAction = actionClient
       }
 
       // For mock, accept any 6-digit code
-      const { verificationCode } = parsedInput;
+      // verificationCode is validated by schema but not used in mock implementation
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _ = parsedInput.verificationCode;
 
       // Generate mock backup codes
       const backupCodes: string[] = [];
@@ -401,13 +404,13 @@ export const getUserProfileAction = actionClient
       }
 
       // Get organization count and check if user is owner
-      const { data: organizations, error: orgError } = await supabaseAdmin
+      await supabaseAdmin
         .from('organization_members')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', session.user.id);
 
       // Get owner count
-      const { data: ownerMemberships, error: ownerError } = await supabaseAdmin
+      const { data: ownerMemberships } = await supabaseAdmin
         .from('organization_members')
         .select('id')
         .eq('user_id', session.user.id)

@@ -49,18 +49,32 @@ const Login = () => {
           setShowResendVerification(false);
         }
       } else if (result?.ok) {
-        // Check if user has organizations
-        const session = await getSession();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (session?.user && (session.user as any).organizations && (session.user as any).organizations.length > 0) {
-          // Redirect to first organization dashboard
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const firstOrg = (session.user as any).organizations[0];
-          router.push(`/${firstOrg.slug}/dashboard`);
-        } else {
-          // Redirect to setup page
-          router.push("/setup");
+        // Wait a moment for the session to be established
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Fetch organizations directly from API to avoid session cache issues
+        try {
+          const orgResponse = await fetch('/api/auth/get-user-orgs', {
+            method: 'GET',
+            credentials: 'include',
+          });
+
+          if (orgResponse.ok) {
+            const { organizations } = await orgResponse.json();
+            
+            if (organizations && organizations.length > 0) {
+              // Redirect to first organization dashboard
+              const firstOrg = organizations[0];
+              window.location.href = `/${firstOrg.slug}/dashboard`;
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching organizations:', error);
         }
+        
+        // If no organizations found or error, redirect to setup
+        window.location.href = "/setup";
       }
     } catch {
       setError("An error occurred. Please try again.");

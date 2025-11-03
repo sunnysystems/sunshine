@@ -157,6 +157,20 @@ export const deleteAccountSchema = z.object({
 
 export type DeleteAccountData = z.infer<typeof deleteAccountSchema>
 
+// Organization schemas
+export const uploadLogoSchema = z.object({
+  organizationId: z.string().uuid("Invalid organization ID"),
+})
+
+export type UploadLogoData = z.infer<typeof uploadLogoSchema>
+
+export const deleteOrganizationSchema = z.object({
+  organizationId: z.string().uuid("Invalid organization ID"),
+  confirmText: z.string().min(1, "Confirmation text is required"),
+})
+
+export type DeleteOrganizationData = z.infer<typeof deleteOrganizationSchema>
+
 // Default form schema (for backward compatibility)
 export const formSchema = contactFormSchema
 export type FormData = ContactFormData
