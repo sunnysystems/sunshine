@@ -78,6 +78,7 @@ NEXTAUTH_SECRET=your-nextauth-secret
 # Google OAuth (Optional)
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id
 
 # Stripe Configuration (Required for billing)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
@@ -171,6 +172,7 @@ Visit `http://localhost:3000` to see your application.
 ```
 ├── /app
 │   ├── /auth (login/signup)
+│   │   └── /post-login (post-auth redirect resolver)
 │   ├── /setup (organization onboarding)
 │   ├── /[tenant] (tenant-specific routes)
 │   │   ├── /dashboard
