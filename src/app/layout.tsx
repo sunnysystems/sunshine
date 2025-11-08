@@ -4,11 +4,11 @@ import localFont from "next/font/local";
 import type { Metadata } from "next";
 
 import { Footer } from "@/components/blocks/footer";
+import { ConditionalNavbar } from "@/components/ConditionalNavbar";
 import { SessionProvider } from "@/components/providers/SessionProvider";
 import { StyleGlideProvider } from "@/components/styleglide-provider";
-import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeInitializer } from "@/components/theme-initializer";
-import { ConditionalNavbar } from "@/components/ConditionalNavbar";
+import { ThemeProvider } from "@/components/theme-provider";
 import "@/styles/globals.css";
 
 const dmSans = localFont({

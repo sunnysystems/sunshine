@@ -1,17 +1,19 @@
 import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
+
+import { getServerSession } from 'next-auth/next';
+
+import { InviteMemberDialog } from '@/components/team/InviteMemberDialog';
+import { PendingInvitationCard } from '@/components/team/PendingInvitationCard';
+import { TeamMemberCard } from '@/components/team/TeamMemberCard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { authOptions } from '@/lib/auth';
 import { canInviteMembers, canManageMembers } from '@/lib/permissions';
 import { getServerTranslation } from '@/lib/server-translation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { InviteMemberDialog } from '@/components/team/InviteMemberDialog';
-import { TeamMemberCard } from '@/components/team/TeamMemberCard';
-import { PendingInvitationCard } from '@/components/team/PendingInvitationCard';
 
 interface TeamPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 export default async function TeamPage({ params }: TeamPageProps) {
@@ -60,16 +62,41 @@ export default async function TeamPage({ params }: TeamPageProps) {
     debugDatabase('Failed to fetch team members', { error: membersError });
   }
 
-  const members = membersData?.map(member => ({
-    id: member.id,
-    userId: member.user_id,
-    name: member.users.name || 'Unknown',
-    email: member.users.email,
-    avatarUrl: member.users.avatar_url,
-    role: member.role as 'owner' | 'admin' | 'member',
-    status: member.status as 'active' | 'pending' | 'suspended',
-    joinedAt: member.created_at
-  })) || [];
+  type MemberRecord = {
+    id: string;
+    user_id: string;
+    role: string;
+    status: string;
+    created_at: string;
+    users:
+      | {
+          name: string | null;
+          email: string;
+          avatar_url: string | null;
+        }
+      | Array<{
+          name: string | null;
+          email: string;
+          avatar_url: string | null;
+        }>;
+  };
+
+  const memberRecords = (membersData ?? []) as MemberRecord[];
+
+  const members = memberRecords.map(member => {
+    const user = Array.isArray(member.users) ? member.users[0] : member.users;
+
+    return {
+      id: member.id,
+      userId: member.user_id,
+      name: user?.name || 'Unknown',
+      email: user?.email || '',
+      avatarUrl: user?.avatar_url || null,
+      role: member.role as 'owner' | 'admin' | 'member',
+      status: member.status as 'active' | 'pending' | 'suspended',
+      joinedAt: member.created_at,
+    };
+  });
 
   // Get pending invitations
   const { data: invitationsData, error: invitationsError } = await supabaseAdmin
@@ -94,16 +121,35 @@ export default async function TeamPage({ params }: TeamPageProps) {
     debugDatabase('Failed to fetch pending invitations', { error: invitationsError });
   }
 
-  const invitations = invitationsData?.map(invitation => ({
-    id: invitation.id,
-    email: invitation.email,
-    role: invitation.role as 'admin' | 'member',
-    token: invitation.token,
-    expiresAt: invitation.expires_at,
-    invitedBy: invitation.invited_by,
-    invitedByName: invitation.users?.name || 'Unknown',
-    createdAt: invitation.created_at
-  })) || [];
+  type InvitationRecord = {
+    id: string;
+    email: string;
+    role: string;
+    token: string;
+    expires_at: string;
+    invited_by: string;
+    created_at: string;
+    users:
+      | { name: string | null }
+      | Array<{ name: string | null }>;
+  };
+
+  const invitationRecords = (invitationsData ?? []) as InvitationRecord[];
+
+  const invitations = invitationRecords.map(invitation => {
+    const inviter = Array.isArray(invitation.users) ? invitation.users[0] : invitation.users;
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role as 'admin' | 'member',
+      token: invitation.token,
+      expiresAt: invitation.expires_at,
+      invitedBy: invitation.invited_by,
+      invitedByName: inviter?.name || 'Unknown',
+      createdAt: invitation.created_at,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -126,7 +172,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
         <CardHeader>
           <CardTitle>{t('team.members')}</CardTitle>
           <CardDescription>
-            {members.length} {members.length === 1 ? t('team.member') : t('team.members')} in your organization
+            {members.length}{' '}
+            {members.length === 1 ? t('team.memberLabel') : t('team.membersLabel')} in your organization
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -159,7 +206,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
           <CardHeader>
             <CardTitle>{t('team.pendingInvitations')}</CardTitle>
             <CardDescription>
-              {invitations.length} pending {invitations.length === 1 ? t('team.invitation') : t('team.invitations')}
+            {invitations.length} pending{' '}
+            {invitations.length === 1 ? t('team.invitationLabel') : t('team.invitationsLabel')}
             </CardDescription>
           </CardHeader>
           <CardContent>

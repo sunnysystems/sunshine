@@ -1,8 +1,8 @@
 'use client';
 
 import { useTenant } from '@/components/tenant/TenantProvider';
-import { useTranslation } from '@/hooks/useTranslation';
 import { Badge } from '@/components/ui/badge';
+import { useTranslation } from '@/hooks/useTranslation';
 
 export default function DashboardPage() {
   const { tenant, role } = useTenant();
@@ -18,7 +18,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <Badge variant="secondary" className="text-sm">
-          {t(`roles.${role}` as any)}
+          {t(`roles.${role}`)}
         </Badge>
       </div>
     </div>

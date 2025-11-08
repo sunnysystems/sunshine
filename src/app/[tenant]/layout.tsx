@@ -1,26 +1,39 @@
+import type { ReactNode } from 'react';
+
 import { notFound, redirect } from 'next/navigation';
 
 import { getServerSession } from 'next-auth/next';
 
-import { authOptions } from '@/lib/auth';
-
+import { TenantNavbar } from '@/components/tenant/TenantNavbar';
 import { TenantProvider } from '@/components/tenant/TenantProvider';
 import { TenantSidebar } from '@/components/tenant/TenantSidebar';
-import { TenantNavbar } from '@/components/tenant/TenantNavbar';
+import { authOptions } from '@/lib/auth';
 import { debugDatabase } from '@/lib/debug';
 import { checkTenantAccess } from '@/lib/tenant';
 
-interface TenantLayoutProps {
-  children: React.ReactNode;
-  params: Promise<{
-    tenant: string;
-  }>;
+interface TenantLayoutParams {
+  tenant: string;
 }
 
-export default async function TenantLayout({
-  children,
-  params,
-}: TenantLayoutProps) {
+interface TenantLayoutProps {
+  children: ReactNode;
+  params: Promise<TenantLayoutParams>;
+}
+
+type SessionUser = {
+  id?: string;
+  email?: string | null;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    plan?: string | null;
+    logo_url?: string | null;
+    role?: string | null;
+  }>;
+};
+
+export default async function TenantLayout({ children, params }: TenantLayoutProps) {
   const session = await getServerSession(authOptions);
   
   if (!session) {
@@ -28,23 +41,20 @@ export default async function TenantLayout({
   }
 
   const { tenant } = await params;
+  const sessionUser = session.user as SessionUser | undefined;
+  const userId = sessionUser?.id ?? '';
+  const organizationCount = sessionUser?.organizations?.length ?? 0;
   
   // Check if user has access to this tenant
   debugDatabase('Session object received', { 
     hasSession: !!session,
     hasUser: !!session?.user,
     userEmail: session?.user?.email,
-    userId: (session?.user as any)?.id,
+    userId,
     sessionKeys: Object.keys(session || {}),
     userKeys: Object.keys(session?.user || {}),
-    sessionUserOrganizations: (session?.user as any)?.organizations?.length || 0,
-    fullSessionUser: session?.user, // Debug: show the full user object
-    sessionUserType: typeof session?.user,
-    sessionUserStringified: JSON.stringify(session?.user, null, 2)
+    sessionUserOrganizations: organizationCount,
   });
-  
-  // Use session.user.id directly since it's now being set correctly in the session callback
-  const userId = (session?.user as any)?.id || '';
   
   debugDatabase('Tenant layout access check', { 
     tenant, 
@@ -67,7 +77,7 @@ export default async function TenantLayout({
   }
 
       return (
-        <TenantProvider tenant={tenant} role={role || 'member'}>
+        <TenantProvider tenant={tenant} tenantRole={role || 'member'}>
           <div className="min-h-screen bg-background">
             <TenantNavbar />
             <div className="flex">

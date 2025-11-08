@@ -1,12 +1,11 @@
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 
-import { supabaseAdmin } from './supabase';
 import { getRolePermissions, type UserRole } from './permissions';
+import { supabaseAdmin } from './supabase';
 
 // JWT Configuration
 const JWT_SECRET = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || '';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET;
 const JWT_ISSUER = process.env.JWT_ISSUER || 'saas-scaffolding';
 const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'microservices';
 const ACCESS_TOKEN_EXPIRES_IN = '1h';

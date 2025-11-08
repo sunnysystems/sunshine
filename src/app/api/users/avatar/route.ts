@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
-import { uploadImageToStorage, deleteFileFromStorage } from '@/lib/storage';
 import { v4 as uuidv4 } from 'uuid';
+
+import { authOptions } from '@/lib/auth';
+import { uploadImageToStorage, deleteFileFromStorage } from '@/lib/storage';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   try {
@@ -85,7 +87,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE() {
   try {
     const session = await getServerSession(authOptions);
     

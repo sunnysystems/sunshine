@@ -1,15 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'sonner';
-import { Crown, Loader2, AlertTriangle } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
-import { transferOwnershipAction } from '@/actions/team-actions';
-import { TeamMember } from '@/actions/team-actions';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getUserAvatarUrl } from '@/lib/avatar';
-import { Button } from '@/components/ui/button';
+import { Crown, Loader2, AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { transferOwnershipAction , TeamMember } from '@/actions/team-actions';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +17,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useTranslation } from '@/hooks/useTranslation';
+import { getUserAvatarUrl } from '@/lib/avatar';
 
 interface TransferOwnershipDialogProps {
   member: TeamMember;
@@ -104,7 +103,7 @@ export function TransferOwnershipDialog({
               <h4 className="font-medium">{member.name}</h4>
               <p className="text-sm text-muted-foreground">{member.email}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {t('team.transferOwnershipDialog.newOwnerLabel')}: {t(`roles.${member.role}` as any)}
+                {t('team.transferOwnershipDialog.newOwnerLabel')}: {t(`roles.${member.role}`)}
               </p>
             </div>
           </div>

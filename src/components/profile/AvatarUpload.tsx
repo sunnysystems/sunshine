@@ -1,24 +1,23 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import Image from 'next/image';
-import { toast } from 'sonner';
-import { Upload, Loader2, XCircle } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
-import { Button } from '@/components/ui/button';
+import { Upload, Loader2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { useTranslation } from '@/hooks/useTranslation';
 import { getUserAvatarUrl } from '@/lib/avatar';
 import { getGravatarUrl } from '@/lib/gravatar';
 
 interface AvatarUploadProps {
-  userId: string;
   currentAvatarUrl: string | null;
   userEmail: string;
   userName: string;
 }
 
-export function AvatarUpload({ userId, currentAvatarUrl, userEmail, userName }: AvatarUploadProps) {
+export function AvatarUpload({ currentAvatarUrl, userEmail, userName }: AvatarUploadProps) {
   const { t } = useTranslation();
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentAvatarUrl);
   const [isUploading, setIsUploading] = useState(false);

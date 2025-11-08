@@ -6,13 +6,14 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
 import { useSession } from 'next-auth/react';
-import { useTranslation } from '@/hooks/useTranslation';
+
 
 import { Background } from '@/components/background';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useTranslation } from '@/hooks/useTranslation';
 import { generateTenantSlug, isValidTenantSlug } from '@/lib/tenant-utils';
 
 export default function Setup() {

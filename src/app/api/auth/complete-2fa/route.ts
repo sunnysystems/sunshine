@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { v4 as uuidv4 } from 'uuid';
+
+import { logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
 import { verifyTOTPCode, verify2FACode, verifyBackupCode } from '@/lib/two-factor';
-import { logError } from '@/lib/debug';
 
 export async function POST(request: NextRequest) {
   try {

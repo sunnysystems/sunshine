@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+import { logError } from '@/lib/debug';
+import { send2FACodeEmail } from '@/lib/email';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generate2FACode, store2FACode } from '@/lib/two-factor';
-import { send2FACodeEmail } from '@/lib/email';
-import { logError } from '@/lib/debug';
 
 export async function POST(request: NextRequest) {
   try {

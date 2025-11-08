@@ -14,8 +14,8 @@ import {
 } from 'lucide-react';
 
 import { useTenant } from './TenantProvider';
-import { useTranslation } from '@/hooks/useTranslation';
 
+import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
 
 interface NavItem {

@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useSession } from 'next-auth/react';
+
 import { Background } from '@/components/background';
 
-export default function PostLoginPage() {
+function PostLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session, status } = useSession();
@@ -76,6 +77,33 @@ export default function PostLoginPage() {
         </div>
       </section>
     </Background>
+  );
+}
+
+function PostLoginLoading() {
+  return (
+    <Background>
+      <section className="py-28 lg:pt-44 lg:pb-32">
+        <div className="container">
+          <div className="flex justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-6" />
+              <p className="text-sm text-muted-foreground">
+                Preparando sua conta...
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </Background>
+  );
+}
+
+export default function PostLoginPage() {
+  return (
+    <Suspense fallback={<PostLoginLoading />}>
+      <PostLoginContent />
+    </Suspense>
   );
 }
 

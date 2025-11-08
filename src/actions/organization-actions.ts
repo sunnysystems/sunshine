@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
+
+import { getServerSession } from "next-auth/next";
 
 import { actionClient } from "./safe-action";
 

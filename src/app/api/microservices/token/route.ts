@@ -1,15 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { getServerSession } from 'next-auth/next';
+
 import { authOptions } from '@/lib/auth';
-import { getTenantFromRequest } from '@/lib/tenant';
 import {
   generateAccessToken,
   generateRefreshToken,
   getUserOrganizationContext,
 } from '@/lib/microservice-auth';
+import { getTenantFromRequest } from '@/lib/tenant';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     const session = await getServerSession(authOptions);
 

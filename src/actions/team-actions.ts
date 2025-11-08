@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
+
 import { randomBytes } from "crypto";
+import { getServerSession } from "next-auth/next";
 
 import { actionClient } from "./safe-action";
 
@@ -410,7 +411,7 @@ export const transferOwnershipAction = actionClient
         .single();
 
       const previousOwnerName = currentOwnerUser?.name || 'The previous owner';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const newOwnerUsers = newOwnerMember.users as { name?: string; email?: string } | null;
       const newOwnerName = newOwnerUsers?.name || 'User';
       const newOwnerEmail = newOwnerUsers?.email;
@@ -517,7 +518,7 @@ export const updateMemberRoleAction = actionClient
       }
 
       // Prevent demoting the last owner
-      if (member.role === 'owner' && role !== 'owner') {
+      if (member.role === 'owner') {
         const { data: ownerCount } = await supabaseAdmin
           .from('organization_members')
           .select('id', { count: 'exact' })
@@ -610,12 +611,33 @@ export const getTeamMembersAction = actionClient
         throw new Error('Failed to fetch team members');
       }
 
-      const teamMembers: TeamMember[] = members.map(member => ({
+      type MemberRecord = {
+        id: string;
+        user_id: string;
+        role: string;
+        status: string;
+        created_at: string;
+        users:
+          | {
+          name: string | null;
+          email: string;
+          avatar_url: string | null;
+          }
+          | Array<{
+              name: string | null;
+              email: string;
+              avatar_url: string | null;
+            }>;
+      };
+
+      const memberRecords = (members ?? []) as MemberRecord[];
+
+      const teamMembers: TeamMember[] = memberRecords.map(member => ({
         id: member.id,
         userId: member.user_id,
-        name: member.users.name || 'Unknown',
-        email: member.users.email,
-        avatarUrl: member.users.avatar_url,
+        name: (Array.isArray(member.users) ? member.users[0]?.name : member.users?.name) || 'Unknown',
+        email: Array.isArray(member.users) ? member.users[0]?.email ?? '' : member.users?.email ?? '',
+        avatarUrl: Array.isArray(member.users) ? member.users[0]?.avatar_url ?? null : member.users?.avatar_url ?? null,
         role: member.role as 'owner' | 'admin' | 'member',
         status: member.status as 'active' | 'pending' | 'suspended',
         joinedAt: member.created_at
@@ -686,16 +708,39 @@ export const getPendingInvitationsAction = actionClient
         throw new Error('Failed to fetch pending invitations');
       }
 
-      const pendingInvitations: PendingInvitation[] = invitations.map(invitation => ({
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role as 'admin' | 'member',
-        token: invitation.token,
-        expiresAt: invitation.expires_at,
-        invitedBy: invitation.invited_by,
-        invitedByName: invitation.users?.name || 'Unknown',
-        createdAt: invitation.created_at
-      }));
+      type InvitationRecord = {
+        id: string;
+        email: string;
+        role: string;
+        token: string;
+        expires_at: string;
+        invited_by: string;
+        created_at: string;
+        users:
+          | {
+              name: string | null;
+            }
+          | Array<{
+              name: string | null;
+            }>;
+      };
+
+      const invitationRecords = (invitations ?? []) as InvitationRecord[];
+
+      const pendingInvitations: PendingInvitation[] = invitationRecords.map(invitation => {
+        const inviter = Array.isArray(invitation.users) ? invitation.users[0] : invitation.users;
+        
+        return {
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role as 'admin' | 'member',
+          token: invitation.token,
+          expiresAt: invitation.expires_at,
+          invitedBy: invitation.invited_by,
+          invitedByName: inviter?.name || 'Unknown',
+          createdAt: invitation.created_at,
+        };
+      });
 
       debugDatabase('Pending invitations fetched successfully', { 
         count: pendingInvitations.length,
@@ -732,6 +777,7 @@ export const acceptInvitationAction = actionClient
           email,
           role,
           organization_id,
+          invited_by,
           expires_at,
           organizations!inner (
             id,
@@ -796,10 +842,14 @@ export const acceptInvitationAction = actionClient
         role: invitation.role
       });
 
+      const organization = Array.isArray(invitation.organizations)
+        ? invitation.organizations[0]
+        : invitation.organizations;
+
       return {
         success: true,
         message: 'Successfully joined the organization',
-        organizationSlug: invitation.organizations.slug
+        organizationSlug: organization?.slug
       };
     } catch (error) {
       logError(error, 'acceptInvitationAction');

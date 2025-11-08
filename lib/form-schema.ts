@@ -150,8 +150,8 @@ export const disable2FASchema = z.object({
 export type Disable2FAData = z.infer<typeof disable2FASchema>
 
 export const deleteAccountSchema = z.object({
-  confirmText: z.literal("DELETE", {
-    errorMap: () => ({ message: "You must type DELETE to confirm" }),
+  confirmText: z.string().refine((value) => value === "DELETE", {
+    message: "You must type DELETE to confirm",
   }),
   password: z.string().min(1, "Password is required"),
 })

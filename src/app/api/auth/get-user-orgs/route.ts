@@ -1,7 +1,20 @@
 import { NextResponse } from 'next/server';
+
 import { getServerSession } from 'next-auth/next';
+
 import { authOptions } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+
+type OrganizationMemberRecord = {
+  role: string;
+  organizations: {
+    id: string;
+    name: string;
+    slug: string;
+    plan?: string | null;
+    logo_url?: string | null;
+  };
+};
 
 export async function GET() {
   try {
@@ -18,7 +31,11 @@ export async function GET() {
 
     // Get user's organizations directly from database
     // First, try to get all fields including logo_url
-    let { data: organizations, error } = await supabaseAdmin
+    type SupabaseError = { message?: string; code?: string } | null;
+    let organizations: OrganizationMemberRecord[] | null = null;
+    let error: SupabaseError = null;
+
+    const initialResult = await supabaseAdmin
       .from('organization_members')
       .select(`
         role,
@@ -33,8 +50,11 @@ export async function GET() {
       .eq('user_id', session.user.id)
       .eq('status', 'active');
 
+    organizations = initialResult.data as OrganizationMemberRecord[] | null;
+    error = initialResult.error ?? null;
+
     // If error is due to missing logo_url column, retry without it
-    if (error && error.message?.includes('logo_url')) {
+    if (error?.message?.includes('logo_url')) {
       console.warn('[get-user-orgs] logo_url column not found, fetching without it');
       const retryResult = await supabaseAdmin
         .from('organization_members')
@@ -50,8 +70,8 @@ export async function GET() {
         .eq('user_id', session.user.id)
         .eq('status', 'active');
       
-      organizations = retryResult.data;
-      error = retryResult.error;
+      organizations = retryResult.data as OrganizationMemberRecord[] | null;
+      error = retryResult.error ?? null;
     }
 
     if (error) {
@@ -64,7 +84,7 @@ export async function GET() {
 
     console.log('[get-user-orgs] Found organizations:', organizations?.length || 0);
 
-    const orgs = organizations?.map((member: any) => ({
+    const orgs = organizations?.map((member: OrganizationMemberRecord) => ({
       id: member.organizations.id,
       name: member.organizations.name,
       slug: member.organizations.slug,

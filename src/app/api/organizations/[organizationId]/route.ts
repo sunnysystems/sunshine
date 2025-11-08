@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getServerSession } from 'next-auth/next';
+
 import { authOptions } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import { canManageMembers } from '@/lib/permissions';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function PATCH(
   request: NextRequest,

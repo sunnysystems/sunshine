@@ -1,18 +1,20 @@
 import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
+
+import { getServerSession } from 'next-auth/next';
+
+import { DeleteOrganizationDialog } from '@/components/organization/DeleteOrganizationDialog';
+import { LogoUpload } from '@/components/organization/LogoUpload';
+import { RenameOrganization } from '@/components/organization/RenameOrganization';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { authOptions } from '@/lib/auth';
 import { canManageMembers } from '@/lib/permissions';
 import { getServerTranslation } from '@/lib/server-translation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogoUpload } from '@/components/organization/LogoUpload';
-import { RenameOrganization } from '@/components/organization/RenameOrganization';
-import { DeleteOrganizationDialog } from '@/components/organization/DeleteOrganizationDialog';
-import { Button } from '@/components/ui/button';
 
 interface SettingsPageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
 async function getUserOrganizationContext(userId: string, tenant: string) {

@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+
 import { zodResolver } from '@hookform/resolvers/zod';
-import { toast } from 'sonner';
 import { Lock, Loader2, Eye, EyeOff } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 import { changePasswordAction } from '@/actions/profile-actions';
-import { changePasswordSchema, type ChangePasswordData } from '@/lib/form-schema';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { changePasswordSchema, type ChangePasswordData } from '@/lib/form-schema';
 
 interface ChangePasswordDialogProps {
   children: React.ReactNode;

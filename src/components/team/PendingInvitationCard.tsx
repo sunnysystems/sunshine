@@ -1,15 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'sonner';
-import { Mail, X, RotateCcw, Loader2 } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
-import { resendInvitationAction, cancelInvitationAction } from '@/actions/team-actions';
-import { PendingInvitation } from '@/actions/team-actions';
-import { canResendInvitations, canCancelInvitations } from '@/lib/permissions';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Mail, X, RotateCcw, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { resendInvitationAction, cancelInvitationAction , PendingInvitation } from '@/actions/team-actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +16,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useTranslation } from '@/hooks/useTranslation';
+import { canResendInvitations, canCancelInvitations } from '@/lib/permissions';
 
 interface PendingInvitationCardProps {
   invitation: PendingInvitation;
@@ -123,7 +123,7 @@ export function PendingInvitationCard({
             </p>
             <div className="flex gap-2 mt-1">
               <Badge variant={getRoleBadgeVariant(invitation.role)} className="text-xs">
-                {t(`roles.${invitation.role}` as any)}
+                {t(`roles.${invitation.role}`)}
               </Badge>
               <Badge 
                 variant={isExpired ? 'destructive' : 'secondary'} 

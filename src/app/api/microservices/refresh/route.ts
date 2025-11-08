@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getServerSession } from 'next-auth/next';
+
 import { authOptions } from '@/lib/auth';
-import { getTenantFromRequest } from '@/lib/tenant';
 import {
   generateAccessToken,
   verifyRefreshToken,
   getUserOrganizationContext,
 } from '@/lib/microservice-auth';
+import { getTenantFromRequest } from '@/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {

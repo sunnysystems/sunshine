@@ -1,15 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { toast } from 'sonner';
+
 import { useRouter } from 'next/navigation';
+
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Trash2, Loader2, AlertTriangle } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
+
+
 
 import { deleteAccountAction } from '@/actions/profile-actions';
-import { deleteAccountSchema, type DeleteAccountData } from '@/lib/form-schema';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -26,11 +31,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { deleteAccountSchema, type DeleteAccountData } from '@/lib/form-schema';
 
 interface DeleteAccountDialogProps {
   children: React.ReactNode;
@@ -156,11 +159,11 @@ export function DeleteAccountDialog({ children, isOwnerOfAnyOrg }: DeleteAccount
               />
 
               <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="confirm-checkbox"
-                  checked={confirmedDelete}
-                  onCheckedChange={setConfirmedDelete}
-                />
+                  <Checkbox
+                    id="confirm-checkbox"
+                    checked={confirmedDelete}
+                    onCheckedChange={(checked) => setConfirmedDelete(checked === true)}
+                  />
                 <label
                   htmlFor="confirm-checkbox"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
