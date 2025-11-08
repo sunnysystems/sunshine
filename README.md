@@ -74,6 +74,13 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # NextAuth Configuration (Required)
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-nextauth-secret
+NEXTAUTH_DEBUG=true
+
+# JWT Configuration for Microservices (Required)
+JWT_SECRET=your-jwt-secret-key-min-32-characters-long
+JWT_REFRESH_SECRET=your-jwt-refresh-secret-key-optional-uses-jwt-secret-if-not-set
+JWT_ISSUER=saas-scaffolding
+JWT_AUDIENCE=microservices
 
 # Google OAuth (Optional)
 GOOGLE_CLIENT_ID=your-google-client-id
@@ -89,8 +96,21 @@ STRIPE_ENTERPRISE_PRICE_ID=price_...
 
 # App Configuration (Optional)
 NEXT_PUBLIC_APP_NAME="My SaaS"
-NEXT_PUBLIC_APP_URL=https://app.example.com
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_DEFAULT_LOGO_URL=/logo.svg
+
+# Resend Configuration (Required for emails)
+RESEND_API_KEY=re_...
+
+# Email Configuration
+EMAIL_FROM=noreply@example.com
+
+# Debug Configuration
+DEBUG_LEVEL=DEBUG
+DEBUG_AUTH=true
+DEBUG_EMAIL=true
+DEBUG_DATABASE=true
+DEBUG_API=true
 ```
 
 ### 3. Database Setup
