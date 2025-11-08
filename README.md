@@ -164,7 +164,7 @@ The scaffolding includes these main tables:
 2. For each bucket, enable **Public** access so assets can be served via CDN.
 3. Configure storage policies to allow authenticated uploads and public reads by running the script in `supabase/storage/storage_policies.sql` inside the Supabase SQL editor (it covers both buckets).
 
-> A aplicação utiliza a service role do Supabase para uploads no backend, o que ignora essas policies. Mesmo assim, aplicar o script garante que interações via dashboard ou ferramentas client-side sigam regras seguras.
+> The application uses the Supabase service role for backend uploads, which bypasses these policies. Applying the script still ensures dashboard operations or any client-side tooling follow consistent, secure rules.
 
 ### 4. Stripe Setup (Optional)
 
