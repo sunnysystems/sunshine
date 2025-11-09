@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const productRows = [
@@ -18,13 +17,6 @@ const productRows = [
     unit: 'GB',
     committed: '1,000',
     threshold: '900',
-  },
-  {
-    id: 'logs_indexed_gb',
-    productLabel: 'datadog.costGuard.metrics.logsIndexed',
-    unit: 'GB',
-    committed: '700',
-    threshold: '630',
   },
   {
     id: 'custom_metrics',
@@ -41,13 +33,6 @@ const productRows = [
     threshold: '18,000,000',
   },
   {
-    id: 'apm_hosts',
-    productLabel: 'datadog.costGuard.metrics.apmHosts',
-    unit: 'hosts',
-    committed: '60',
-    threshold: '54',
-  },
-  {
     id: 'infra_hosts',
     productLabel: 'datadog.costGuard.metrics.infraHosts',
     unit: 'hosts',
@@ -60,13 +45,6 @@ const productRows = [
     unit: 'containers',
     committed: '100',
     threshold: '95',
-  },
-  {
-    id: 'ci_visibility',
-    productLabel: 'datadog.costGuard.metrics.ciVisibility',
-    unit: 'commits',
-    committed: '100,000',
-    threshold: '90,000',
   },
   {
     id: 'rum_sessions',
@@ -83,39 +61,11 @@ const productRows = [
     threshold: '80,000',
   },
   {
-    id: 'dbm_hosts',
-    productLabel: 'datadog.costGuard.metrics.dbmHosts',
-    unit: 'hosts',
-    committed: '40',
-    threshold: '36',
-  },
-  {
-    id: 'observability_pipelines',
-    productLabel: 'datadog.costGuard.metrics.observabilityPipelines',
-    unit: 'GB',
-    committed: '150',
-    threshold: '135',
-  },
-  {
-    id: 'profiling',
-    productLabel: 'datadog.costGuard.metrics.profiling',
-    unit: 'hours',
-    committed: '5,000',
-    threshold: '4,500',
-  },
-  {
-    id: 'serverless',
-    productLabel: 'datadog.costGuard.metrics.serverless',
-    unit: 'functions',
-    committed: '50,000',
-    threshold: '45,000',
-  },
-  {
-    id: 'security_signals',
-    productLabel: 'datadog.costGuard.metrics.securitySignals',
-    unit: 'signals',
-    committed: '10,000',
-    threshold: '9,000',
+    id: 'ci_visibility',
+    productLabel: 'datadog.costGuard.metrics.ciVisibility',
+    unit: 'commits',
+    committed: '100,000',
+    threshold: '90,000',
   },
 ];
 

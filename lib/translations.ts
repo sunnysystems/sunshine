@@ -965,11 +965,6 @@ export const translations = {
             unit: 'GB',
             action: 'Enable temporary exclusion filters',
           },
-          logsIndexed: {
-            label: 'Logs indexed',
-            unit: 'GB',
-            action: 'Review index retention policies',
-          },
           customMetrics: {
             label: 'Custom metrics',
             unit: 'metrics',
@@ -1009,31 +1004,6 @@ export const translations = {
             label: 'CI visibility commits',
             unit: 'commits',
             action: 'Align with DevEx team',
-          },
-          dbmHosts: {
-            label: 'DBM hosts',
-            unit: 'hosts',
-            action: 'Audit database agents usage',
-          },
-          observabilityPipelines: {
-            label: 'Observability pipelines',
-            unit: 'GB',
-            action: 'Validate pipeline routing configuration',
-          },
-          profiling: {
-            label: 'Continuous profiling',
-            unit: 'hours',
-            action: 'Coordinate with service owners to tune profiling windows',
-          },
-          serverless: {
-            label: 'Serverless functions',
-            unit: 'functions',
-            action: 'Review inactive functions in Datadog',
-          },
-          securitySignals: {
-            label: 'Security signals',
-            unit: 'signals',
-            action: 'Align with security team on detection thresholds',
           },
         },
       },
@@ -2007,11 +1977,6 @@ export const translations = {
             unit: 'GB',
             action: 'Ativar filtros de exclusão temporários',
           },
-          logsIndexed: {
-            label: 'Logs indexados',
-            unit: 'GB',
-            action: 'Revisar políticas de retenção de índices',
-          },
           customMetrics: {
             label: 'Custom metrics',
             unit: 'métricas',
@@ -2051,31 +2016,6 @@ export const translations = {
             label: 'Commits CI visibility',
             unit: 'commits',
             action: 'Ajustar com time de DevEx',
-          },
-          dbmHosts: {
-            label: 'Hosts DBM',
-            unit: 'hosts',
-            action: 'Auditar uso dos agentes de banco de dados',
-          },
-          observabilityPipelines: {
-            label: 'Observability pipelines',
-            unit: 'GB',
-            action: 'Validar configuração das pipelines',
-          },
-          profiling: {
-            label: 'Continuous profiling',
-            unit: 'horas',
-            action: 'Alinhar com os times para ajustar janelas de profiling',
-          },
-          serverless: {
-            label: 'Funções serverless',
-            unit: 'funções',
-            action: 'Revisar funções inativas no Datadog',
-          },
-          securitySignals: {
-            label: 'Sinais de segurança',
-            unit: 'sinais',
-            action: 'Alinhar thresholds com o time de segurança',
           },
         },
       },
