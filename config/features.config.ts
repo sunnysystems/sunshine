@@ -72,6 +72,13 @@ export const featuresConfig: Record<string, FeatureConfig> = {
     description: 'Placeholder for custom feature modules',
     dependencies: ['auth', 'multiTenant'],
   },
+  datadogSuite: {
+    enabled: true,
+    name: 'Datadog Experience',
+    description:
+      'Datadog-focused observability, automation, and FinOps workflows',
+    dependencies: ['auth', 'multiTenant', 'userManagement'],
+  },
 };
 
 export const getEnabledFeatures = (): string[] => {
