@@ -3,19 +3,37 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { v4 as uuidv4 } from 'uuid';
 
-import { debugAuth, debugDatabase, logError, RequestTimer } from './debug';
+import { debugAuth, debugDatabase, logger, logError, RequestTimer } from './debug';
 import { supabaseAdmin } from './supabase';
 
 // For now, let's use JWT strategy instead of database sessions
 // Database sessions require a proper adapter implementation
 
+// Check if Google OAuth is configured
+const isGoogleOAuthConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+if (isGoogleOAuthConfigured) {
+  debugAuth('Google OAuth is configured', {
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    clientIdLength: process.env.GOOGLE_CLIENT_ID?.length || 0,
+    nextAuthUrl: process.env.NEXTAUTH_URL || 'NOT SET',
+    expectedCallbackUrl: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/auth/callback/google`,
+  });
+} else {
+  debugAuth('Google OAuth is NOT configured', {
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+  });
+}
+
 export const authOptions = {
   providers: [
     // Google OAuth Provider (optional)
-    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? [
+    ...(isGoogleOAuthConfigured ? [
       GoogleProvider({
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       })
     ] : []),
     
@@ -166,8 +184,18 @@ export const authOptions = {
   ],
   
   callbacks: {
-    async signIn() {
+    async signIn({ user, account, profile }: { user: any; account: any; profile?: any }) {
       // This callback is called before the authorize function
+      if (account?.provider === 'google') {
+        debugAuth('Google OAuth signIn callback', {
+          hasUser: !!user,
+          hasAccount: !!account,
+          hasProfile: !!profile,
+          userEmail: user?.email,
+          accountType: account?.type,
+          accountProvider: account?.provider,
+        });
+      }
       return true;
     },
     
@@ -195,23 +223,27 @@ export const authOptions = {
         if (account?.provider === 'google') {
           debugAuth('Processing Google OAuth user', { email: user.email });
           
-          const { data: existingUser, error } = await supabaseAdmin
+          const { data: existingUser, error: fetchError } = await supabaseAdmin
             .from('users')
             .select('*')
             .eq('email', user.email)
             .single();
 
-          if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-            // eslint-disable-next-line no-console
-            console.error('Database error:', error);
+          if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+            logger.error('Database error fetching user for Google OAuth', {
+              error: fetchError.message,
+              email: user.email,
+            });
             return false;
           }
+
+          let dbUser = existingUser;
 
           // If user doesn't exist, create them
           if (!existingUser) {
             debugAuth('Creating new Google OAuth user', { email: user.email });
             
-            const { error: createError } = await supabaseAdmin
+            const { data: newUser, error: createError } = await supabaseAdmin
               .from('users')
               .insert({
                 email: user.email!,
@@ -223,10 +255,82 @@ export const authOptions = {
               .single();
 
             if (createError) {
-              // eslint-disable-next-line no-console
-              console.error('Error creating user:', createError);
+              logger.error('Error creating Google OAuth user', {
+                error: createError.message,
+                email: user.email,
+                code: createError.code,
+              });
               return false;
             }
+
+            if (!newUser) {
+              logger.error('Failed to create Google OAuth user - no data returned', {
+                email: user.email,
+              });
+              return false;
+            }
+
+            dbUser = newUser;
+            debugAuth('Google OAuth user created successfully', { 
+              userId: dbUser.id,
+              email: dbUser.email 
+            });
+          } else {
+            // User exists - check if account is locked
+            if (dbUser.locked_until && new Date(dbUser.locked_until) > new Date()) {
+              logger.error('Google OAuth login blocked - account is locked', {
+                userId: dbUser.id,
+                email: dbUser.email,
+                lockedUntil: dbUser.locked_until,
+              });
+              return false;
+            }
+
+            // Update user data with latest Google information (account linking)
+            const updateData: { name?: string; avatar_url?: string | null; email_verified?: boolean; failed_login_attempts?: number; locked_until?: null; last_login_at?: string } = {
+              email_verified: true, // Ensure email is verified for OAuth users
+              failed_login_attempts: 0, // Reset failed attempts on successful OAuth login
+              locked_until: null, // Unlock account if locked
+              last_login_at: new Date().toISOString(),
+            };
+
+            // Update name and avatar if they differ from Google data
+            if (user.name && user.name !== dbUser.name) {
+              updateData.name = user.name;
+            }
+
+            if (user.image !== dbUser.avatar_url) {
+              updateData.avatar_url = user.image || null;
+            }
+
+            const { error: updateError } = await supabaseAdmin
+              .from('users')
+              .update(updateData)
+              .eq('id', dbUser.id);
+
+            if (updateError) {
+              logger.error('Error updating Google OAuth user data', {
+                error: updateError.message,
+                userId: dbUser.id,
+                email: dbUser.email,
+              });
+              // Continue anyway - don't fail login if update fails
+            } else {
+              debugAuth('Google OAuth user data updated', { 
+                userId: dbUser.id,
+                email: dbUser.email,
+                updatedFields: Object.keys(updateData)
+              });
+            }
+          }
+
+          // Use database user ID instead of OAuth user ID
+          if (dbUser) {
+            user.id = dbUser.id;
+            debugAuth('User ID set from database', { 
+              userId: dbUser.id,
+              email: dbUser.email
+            });
           }
         }
 
@@ -336,12 +440,67 @@ export const authOptions = {
     signIn: '/auth/signin',
   },
 
+  events: {
+    async signIn({ user, account, profile, isNewUser }: { user: any; account: any; profile?: any; isNewUser?: boolean }) {
+      if (account?.provider === 'google') {
+        debugAuth('Google OAuth signIn event', {
+          hasUser: !!user,
+          hasAccount: !!account,
+          hasProfile: !!profile,
+          userEmail: user?.email,
+          isNewUser,
+        });
+      }
+    },
+    async error(message: unknown) {
+      const eventError = (message as { error?: unknown })?.error ?? message;
+
+      logger.error('NextAuth error event', {
+        name: eventError instanceof Error ? eventError.name : undefined,
+        message: eventError instanceof Error ? eventError.message : String(eventError),
+        stack: eventError instanceof Error ? eventError.stack : undefined,
+      });
+    },
+    async signInError({ error, provider }: { error: unknown; provider?: string }) {
+      logger.error('NextAuth signIn error', {
+        error: error instanceof Error ? error.message : String(error),
+        provider,
+        errorName: error instanceof Error ? error.name : undefined,
+        errorStack: error instanceof Error ? error.stack : undefined,
+      });
+    },
+  },
+
+  logger: {
+    error(code: string, metadata: Record<string, unknown>) {
+      logger.error('NextAuth logger error', {
+        code,
+        metadata,
+      });
+    },
+    warn(code: string, metadata: Record<string, unknown>) {
+      logger.warn('NextAuth logger warn', {
+        code,
+        metadata,
+      });
+    },
+    debug(code: string, metadata: Record<string, unknown>) {
+      logger.debug('NextAuth logger debug', {
+        code,
+        metadata,
+      });
+    },
+  },
+
   session: {
     strategy: 'jwt' as const,
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
 
   secret: process.env.NEXTAUTH_SECRET,
+
+  // Enable debug mode to get more detailed error messages
+  debug: process.env.NODE_ENV === 'development',
 };
 
 // Helper functions for authentication
