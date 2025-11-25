@@ -1,24 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'sonner';
-import { MoreHorizontal, UserMinus, Shield, ShieldCheck, Crown, Loader2 } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
-import { removeMemberAction, updateMemberRoleAction } from '@/actions/team-actions';
-import { TeamMember } from '@/actions/team-actions';
-import { canChangeRoles, canRemoveMembers } from '@/lib/permissions';
+import { MoreHorizontal, UserMinus, Shield, ShieldCheck, Crown, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { TransferOwnershipDialog } from './TransferOwnershipDialog';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getUserAvatarUrl } from '@/lib/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+
+import { removeMemberAction, updateMemberRoleAction , TeamMember } from '@/actions/team-actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +18,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useTranslation } from '@/hooks/useTranslation';
+import { getUserAvatarUrl } from '@/lib/avatar';
+import { canChangeRoles, canRemoveMembers } from '@/lib/permissions';
 
 interface TeamMemberCardProps {
   member: TeamMember;
@@ -137,7 +138,7 @@ export function TeamMemberCard({
             <p className="text-sm text-muted-foreground">{member.email}</p>
             <div className="flex gap-2 mt-1">
               <Badge variant={getRoleBadgeVariant(member.role)} className="text-xs">
-                {t(`roles.${member.role}` as any)}
+                {t(`roles.${member.role}`)}
               </Badge>
               <Badge variant="default" className="text-xs">
                 {member.status}

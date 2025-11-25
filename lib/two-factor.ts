@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
-import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
+import speakeasy from 'speakeasy';
 
 import { supabaseAdmin } from './supabase';
 

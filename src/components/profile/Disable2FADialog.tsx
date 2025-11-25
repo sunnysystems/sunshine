@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+
 import { zodResolver } from '@hookform/resolvers/zod';
-import { toast } from 'sonner';
 import { ShieldCheck, Loader2, AlertTriangle } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 import { disableMFAAction } from '@/actions/profile-actions';
-import { disable2FASchema, type Disable2FAData } from '@/lib/form-schema';
-import { useTranslation } from '@/hooks/useTranslation';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -29,7 +29,8 @@ import {
   FormDescription,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useTranslation } from '@/hooks/useTranslation';
+import { disable2FASchema, type Disable2FAData } from '@/lib/form-schema';
 
 interface Disable2FADialogProps {
   children: React.ReactNode;

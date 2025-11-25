@@ -2,8 +2,8 @@
 
 import { Key } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useTranslation } from '@/hooks/useTranslation';
 
 export default function APIKeysPage() {
   const { t } = useTranslation();

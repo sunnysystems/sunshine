@@ -1,15 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+
 import { zodResolver } from '@hookform/resolvers/zod';
-import { toast } from 'sonner';
 import { ShieldCheck, Loader2, QrCode, Copy, Download } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 import { generateMFASecretAction, verifyAndEnableMFAAction } from '@/actions/profile-actions';
-import { enable2FASchema, type Enable2FAData } from '@/lib/form-schema';
-import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,8 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useTranslation } from '@/hooks/useTranslation';
+import { enable2FASchema, type Enable2FAData } from '@/lib/form-schema';
 
 interface Enable2FADialogProps {
   children: React.ReactNode;
@@ -82,7 +83,11 @@ export function Enable2FADialog({ children }: Enable2FADialogProps) {
       if (result?.data?.success && result.data.data) {
         setMfaData(result.data.data);
       } else {
-        toast.error(result?.data?.message || t('security.twoFactor.generateError'));
+        const apiMessage =
+          result?.data && 'message' in result.data
+            ? (result.data as { message?: string }).message
+            : undefined;
+        toast.error(apiMessage || t('security.twoFactor.generateError'));
       }
     } catch (error) {
       console.error('Error generating MFA secret:', error);

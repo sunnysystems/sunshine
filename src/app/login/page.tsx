@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { signIn, getSession } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { FcGoogle } from "react-icons/fc";
 
 import { Background } from "@/components/background";
@@ -110,7 +110,7 @@ const Login = () => {
   };
 
   const handleGoogleSignIn = () => {
-    signIn("google", { callbackUrl: "/setup" });
+    signIn("google", { callbackUrl: "/auth/post-login" });
   };
 
   const handleResendVerification = async () => {

@@ -4,11 +4,13 @@ import localFont from "next/font/local";
 import type { Metadata } from "next";
 
 import { Footer } from "@/components/blocks/footer";
+import { ConditionalNavbar } from "@/components/ConditionalNavbar";
 import { SessionProvider } from "@/components/providers/SessionProvider";
 import { StyleGlideProvider } from "@/components/styleglide-provider";
-import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeInitializer } from "@/components/theme-initializer";
-import { ConditionalNavbar } from "@/components/ConditionalNavbar";
+import { ThemeProvider } from "@/components/theme-provider";
+import { FeatureFlagsProvider } from "@/lib/features/client";
+import { getServerFeatureFlags } from "@/lib/features/server";
 import "@/styles/globals.css";
 
 const dmSans = localFont({
@@ -64,6 +66,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
   title: {
     default: "Mainline - Modern Next.js Template",
     template: "%s | Mainline",
@@ -132,6 +135,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const featureFlags = getServerFeatureFlags();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -142,20 +147,22 @@ export default function RootLayout({
         />
       </head>
       <body className={`${dmSans.variable} ${inter.variable} antialiased`}>
-        <SessionProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <ThemeInitializer />
-            <StyleGlideProvider />
-            <ConditionalNavbar />
-            <main className="">{children}</main>
-            <Footer />
-          </ThemeProvider>
-        </SessionProvider>
+        <FeatureFlagsProvider initialFlags={featureFlags}>
+          <SessionProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <ThemeInitializer />
+              <StyleGlideProvider />
+              <ConditionalNavbar />
+              <main className="">{children}</main>
+              <Footer />
+            </ThemeProvider>
+          </SessionProvider>
+        </FeatureFlagsProvider>
       </body>
     </html>
   );

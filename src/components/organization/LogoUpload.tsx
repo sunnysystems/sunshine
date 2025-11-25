@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { toast } from 'sonner';
-import { Upload, Loader2, Image as ImageIcon } from 'lucide-react';
+
 import Image from 'next/image';
 
-import { useTranslation } from '@/hooks/useTranslation';
+import { Upload, Loader2, Image as ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface LogoUploadProps {
   organizationId: string;

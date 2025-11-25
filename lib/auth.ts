@@ -4,6 +4,7 @@ import GoogleProvider from 'next-auth/providers/google';
 import { v4 as uuidv4 } from 'uuid';
 
 import { debugAuth, debugDatabase, logger, logError, RequestTimer } from './debug';
+import { getEmailDomain, isPersonalEmailDomain } from './email-domain';
 import { supabaseAdmin } from './supabase';
 
 // For now, let's use JWT strategy instead of database sessions
@@ -200,11 +201,29 @@ export const authOptions = {
     },
     
     async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
-      // Allows relative callback URLs
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // Allows callback URLs on the same origin
-      else if (new URL(url).origin === baseUrl) return url;
-      return baseUrl;
+      try {
+        const postLoginPath = "/auth/post-login";
+
+        if (url.startsWith("/auth/signin")) {
+          return `${baseUrl}${postLoginPath}`;
+        }
+
+        if (url.startsWith("/")) {
+          return `${baseUrl}${url}`;
+        }
+
+        const parsedUrl = new URL(url);
+
+        if (parsedUrl.origin === baseUrl) {
+          return url;
+        }
+
+        return `${baseUrl}${postLoginPath}`;
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("Redirect callback error:", error);
+        return `${baseUrl}/auth/post-login`;
+      }
     },
     
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -222,28 +241,28 @@ export const authOptions = {
         // For OAuth providers (Google), create user if doesn't exist
         if (account?.provider === 'google') {
           debugAuth('Processing Google OAuth user', { email: user.email });
-          
-          const { data: existingUser, error: fetchError } = await supabaseAdmin
+
+          const { data: existingUser, error } = await supabaseAdmin
             .from('users')
             .select('*')
             .eq('email', user.email)
             .single();
 
-          if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+          if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
             logger.error('Database error fetching user for Google OAuth', {
-              error: fetchError.message,
+              error: error.message,
               email: user.email,
             });
             return false;
           }
 
-          let dbUser = existingUser;
+          let supabaseUser = existingUser;
 
           // If user doesn't exist, create them
-          if (!existingUser) {
+          if (!supabaseUser) {
             debugAuth('Creating new Google OAuth user', { email: user.email });
-            
-            const { data: newUser, error: createError } = await supabaseAdmin
+
+            const { data: createdUser, error: createError } = await supabaseAdmin
               .from('users')
               .insert({
                 email: user.email!,
@@ -263,25 +282,25 @@ export const authOptions = {
               return false;
             }
 
-            if (!newUser) {
+            if (!createdUser) {
               logger.error('Failed to create Google OAuth user - no data returned', {
                 email: user.email,
               });
               return false;
             }
 
-            dbUser = newUser;
+            supabaseUser = createdUser;
             debugAuth('Google OAuth user created successfully', { 
-              userId: dbUser.id,
-              email: dbUser.email 
+              userId: supabaseUser.id,
+              email: supabaseUser.email 
             });
           } else {
             // User exists - check if account is locked
-            if (dbUser.locked_until && new Date(dbUser.locked_until) > new Date()) {
+            if (supabaseUser.locked_until && new Date(supabaseUser.locked_until) > new Date()) {
               logger.error('Google OAuth login blocked - account is locked', {
-                userId: dbUser.id,
-                email: dbUser.email,
-                lockedUntil: dbUser.locked_until,
+                userId: supabaseUser.id,
+                email: supabaseUser.email,
+                lockedUntil: supabaseUser.locked_until,
               });
               return false;
             }
@@ -295,41 +314,45 @@ export const authOptions = {
             };
 
             // Update name and avatar if they differ from Google data
-            if (user.name && user.name !== dbUser.name) {
+            if (user.name && user.name !== supabaseUser.name) {
               updateData.name = user.name;
             }
 
-            if (user.image !== dbUser.avatar_url) {
+            if (user.image !== supabaseUser.avatar_url) {
               updateData.avatar_url = user.image || null;
             }
 
             const { error: updateError } = await supabaseAdmin
               .from('users')
               .update(updateData)
-              .eq('id', dbUser.id);
+              .eq('id', supabaseUser.id);
 
             if (updateError) {
               logger.error('Error updating Google OAuth user data', {
                 error: updateError.message,
-                userId: dbUser.id,
-                email: dbUser.email,
+                userId: supabaseUser.id,
+                email: supabaseUser.email,
               });
               // Continue anyway - don't fail login if update fails
             } else {
               debugAuth('Google OAuth user data updated', { 
-                userId: dbUser.id,
-                email: dbUser.email,
+                userId: supabaseUser.id,
+                email: supabaseUser.email,
                 updatedFields: Object.keys(updateData)
               });
             }
           }
 
           // Use database user ID instead of OAuth user ID
-          if (dbUser) {
-            user.id = dbUser.id;
+          if (supabaseUser) {
+            // Ensure we keep using the Supabase user ID so OAuth and credentials accounts merge
+            user.id = supabaseUser.id;
+            user.name = user.name || supabaseUser.name;
+            user.email = supabaseUser.email;
+            user.image = supabaseUser.avatar_url || user.image;
             debugAuth('User ID set from database', { 
-              userId: dbUser.id,
-              email: dbUser.email
+              userId: supabaseUser.id,
+              email: supabaseUser.email
             });
           }
         }
@@ -375,6 +398,8 @@ export const authOptions = {
         });
         
         session.user.id = token.sub;
+
+        await ensureAutoAcceptedDomainMembership(token.sub, session.user.email);
         
         debugAuth('Session user ID set', { 
           sessionUserId: session.user.id,
@@ -504,6 +529,109 @@ export const authOptions = {
 };
 
 // Helper functions for authentication
+
+export async function ensureAutoAcceptedDomainMembership(
+  userId: string,
+  email: string | null | undefined
+) {
+  const domain = getEmailDomain(email);
+
+  if (!domain) {
+    debugAuth('Auto-accept domain skipped: missing domain', { userId, email });
+    return;
+  }
+
+  if (isPersonalEmailDomain(domain)) {
+    debugAuth('Auto-accept domain skipped: personal email domain', { userId, domain });
+    return;
+  }
+
+  try {
+    const timer = new RequestTimer('ensureAutoAcceptedDomainMembership');
+
+    const { data: enabledOrganizations, error: organizationsError } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .eq('settings->autoAcceptDomainMembers->>enabled', 'true')
+      .eq('settings->autoAcceptDomainMembers->>domain', domain);
+
+    timer.checkpoint('fetchOrganizations');
+
+    if (organizationsError) {
+      logError(organizationsError, 'ensureAutoAcceptedDomainMembership.fetchOrganizations');
+      return;
+    }
+
+    if (!enabledOrganizations || enabledOrganizations.length === 0) {
+      debugAuth('Auto-accept domain: no organizations matched domain', { userId, domain });
+      return;
+    }
+
+    const { data: existingMemberships, error: membershipsError } = await supabaseAdmin
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId);
+
+    timer.checkpoint('fetchMemberships');
+
+    if (membershipsError) {
+      logError(membershipsError, 'ensureAutoAcceptedDomainMembership.fetchMemberships');
+      return;
+    }
+
+    const existingOrgIds = new Set(
+      (existingMemberships || []).map(
+        (membership: { organization_id: string }) => membership.organization_id
+      )
+    );
+
+    const organizationsToJoin = (enabledOrganizations || []).filter(
+      (organization: { id: string | null }) =>
+        organization?.id && !existingOrgIds.has(organization.id)
+    );
+
+    if (organizationsToJoin.length === 0) {
+      debugAuth('Auto-accept domain: user already belongs to all matched organizations', {
+        userId,
+        domain,
+      });
+      return;
+    }
+
+    const insertPayload = organizationsToJoin.map((organization) => ({
+      user_id: userId,
+      organization_id: organization.id as string,
+      role: 'member',
+      status: 'active',
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from('organization_members')
+      .insert(insertPayload);
+
+    timer.end('insertMemberships');
+
+    if (insertError) {
+      if ((insertError as { code?: string }).code === '23505') {
+        debugAuth('Auto-accept domain: membership already exists (duplicate)', {
+          userId,
+          domain,
+        });
+      } else {
+        logError(insertError, 'ensureAutoAcceptedDomainMembership.insertMemberships');
+      }
+      return;
+    }
+
+    debugDatabase('Auto-accepted domain membership inserted', {
+      userId,
+      domain,
+      organizationsCount: organizationsToJoin.length,
+    });
+  } catch (error) {
+    logError(error, 'ensureAutoAcceptedDomainMembership');
+  }
+}
 
 export async function createUser(
   email: string, 
@@ -678,6 +806,12 @@ export async function createOrganization(userId: string, name: string, slug: str
         name,
         slug,
         plan: 'free',
+        settings: {
+          autoAcceptDomainMembers: {
+            enabled: false,
+            domain: null,
+          },
+        },
       })
       .select()
       .single();

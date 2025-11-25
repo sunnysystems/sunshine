@@ -1,16 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import Image from 'next/image';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+
 import { LogOut, Settings, Building2, Plus } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
 
 import { useTenant } from './TenantProvider';
-import { useTranslation } from '@/hooks/useTranslation';
+
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getUserAvatarUrl } from '@/lib/avatar';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -20,6 +20,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useTranslation } from '@/hooks/useTranslation';
+import { getUserAvatarUrl } from '@/lib/avatar';
+
+type SessionOrganization = {
+  id: string;
+  name: string;
+  slug: string;
+  plan?: string | null;
+  logo_url?: string | null;
+  role?: 'owner' | 'admin' | 'member' | string;
+};
+
+type SessionUser = {
+  id?: string;
+  email?: string | null;
+  name?: string | null;
+  image?: string | null;
+  organizations?: SessionOrganization[];
+};
 
 export function TenantNavbar() {
   const { data: session } = useSession();
@@ -29,9 +48,9 @@ export function TenantNavbar() {
   const { t } = useTranslation();
 
   // Get current organization info
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const organizations = (session?.user as any)?.organizations || [];
-  const currentOrganization = organizations.find((org: any) => org.slug === tenant);
+  const sessionUser = session?.user as SessionUser | undefined;
+  const organizations = sessionUser?.organizations ?? [];
+  const currentOrganization = organizations.find((org) => org.slug === tenant);
 
   const handleSignOut = () => {
     signOut({ callbackUrl: '/' });
@@ -73,30 +92,30 @@ export function TenantNavbar() {
               <Building2 className="h-3 w-3 text-muted-foreground" />
               <span className="text-sm font-medium">{currentOrganization.name}</span>
               <span className="text-xs text-muted-foreground capitalize">
-                ({t(`roles.${currentOrganization.role}` as any)})
+                ({t(`roles.${currentOrganization.role ?? 'member'}`)})
               </span>
             </div>
           )}
         </div>
 
         <div className="flex items-center gap-4 pr-4">
-          {session?.user && (
+          {sessionUser && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
                     {(() => {
                       const avatarUrl = getUserAvatarUrl(
-                        session.user.image || null,
-                        session.user.email || '',
+                        sessionUser.image || null,
+                        sessionUser.email || '',
                         32
                       );
                       return avatarUrl ? (
-                        <AvatarImage src={avatarUrl} alt={session.user.name || ''} />
+                        <AvatarImage src={avatarUrl} alt={sessionUser.name || ''} />
                       ) : null;
                     })()}
                     <AvatarFallback>
-                      {session.user.name?.charAt(0).toUpperCase() || session.user.email?.charAt(0).toUpperCase()}
+                      {sessionUser.name?.charAt(0).toUpperCase() || sessionUser.email?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
@@ -104,9 +123,9 @@ export function TenantNavbar() {
               <DropdownMenuContent className="w-72" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{session.user.name}</p>
+                      <p className="text-sm font-medium leading-none">{sessionUser.name}</p>
                     <p className="text-xs leading-none text-muted-foreground">
-                      {session.user.email}
+                        {sessionUser.email}
                     </p>
                   </div>
                 </DropdownMenuLabel>
@@ -139,7 +158,7 @@ export function TenantNavbar() {
                       </p>
                     </div>
                     
-                    {organizations.map((org: any) => (
+                    {organizations.map((org) => (
                       <DropdownMenuItem
                         key={org.id}
                         onClick={() => handleOrganizationChange(org.slug)}
@@ -153,7 +172,7 @@ export function TenantNavbar() {
                         <div className="flex flex-col items-start flex-1">
                           <span className="text-sm font-medium">{org.name}</span>
                           <span className="text-xs text-muted-foreground capitalize">
-                            {t(`roles.${org.role}` as any)}
+                            {t(`roles.${org.role ?? 'member'}`)}
                           </span>
                         </div>
                         {currentOrganization && org.slug === currentOrganization.slug && (

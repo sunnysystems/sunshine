@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useEffect, useState } from 'react';
+
 import { translations, type Language } from '@/lib/translations';
 
 /**
@@ -13,7 +14,8 @@ export function useBrowserTranslation() {
   useEffect(() => {
     // Detect browser language on client-side only
     if (typeof window !== 'undefined') {
-      const detectedLang = navigator.language || (navigator as any).userLanguage || 'en-US';
+      const nav = navigator as Navigator & { userLanguage?: string | undefined };
+      const detectedLang = nav.language || nav.userLanguage || 'en-US';
       
       // Map browser language to our supported languages
       let lang: Language = 'en-US';
@@ -28,18 +30,17 @@ export function useBrowserTranslation() {
   }, []);
 
   const t = useMemo(() => {
-    const translations_data = translations[browserLanguage];
+    const translationsData = translations[browserLanguage];
     
     return (path: string, params?: Record<string, string | number>): string => {
       const keys = path.split('.');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let value: any = translations_data;
+      let value: unknown = translationsData;
       
       for (const key of keys) {
         if (value && typeof value === 'object' && key in value) {
-          value = value[key];
+          value = (value as Record<string, unknown>)[key];
         } else {
-          return path;
+          return path; // Return the path if translation not found
         }
       }
       

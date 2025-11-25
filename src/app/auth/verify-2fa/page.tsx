@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+
+import { useSearchParams } from 'next/navigation';
+
 import { signIn } from 'next-auth/react';
 
 import { Background } from '@/components/background';
@@ -13,7 +15,6 @@ import { useBrowserTranslation } from '@/hooks/useBrowserTranslation';
 
 function Verify2FAContent() {
   const { t } = useBrowserTranslation();
-  const router = useRouter();
   const searchParams = useSearchParams();
   
   const method = searchParams.get('method') || 'email'; // 'totp' or 'email'

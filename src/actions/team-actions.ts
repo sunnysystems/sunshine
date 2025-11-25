@@ -1,11 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
+
 import { randomBytes } from "crypto";
+import { getServerSession } from "next-auth/next";
 
 import { actionClient } from "./safe-action";
 
+import { logAuditEvent } from "@/lib/audit-logger";
 import { authOptions } from "@/lib/auth";
 import { debugDatabase, logError } from "@/lib/debug";
 import { sendInvitationEmail, sendOwnershipTransferEmail } from "@/lib/email";
@@ -169,6 +172,21 @@ export const inviteMemberAction = actionClient
         organizationId
       });
 
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'invitation.create',
+        targetType: 'invitation',
+        targetId: invitation.id,
+        metadata: {
+          email,
+          role,
+          expiresAt: invitation.expires_at,
+        },
+        headers: requestHeaders,
+      });
+
       revalidatePath('/[tenant]/team', 'page');
       
       return {
@@ -232,6 +250,19 @@ export const resendInvitationAction = actionClient
         email: invitation.email
       });
 
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'invitation.resend',
+        targetType: 'invitation',
+        targetId: invitationId,
+        metadata: {
+          email: invitation.email,
+        },
+        headers: requestHeaders,
+      });
+
       return {
         success: true,
         message: 'Invitation resent successfully'
@@ -275,6 +306,16 @@ export const cancelInvitationAction = actionClient
       }
 
       debugDatabase('Invitation cancelled successfully', { invitationId });
+
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'invitation.cancel',
+        targetType: 'invitation',
+        targetId: invitationId,
+        headers: requestHeaders,
+      });
 
       revalidatePath('/[tenant]/team', 'page');
       
@@ -353,6 +394,20 @@ export const removeMemberAction = actionClient
 
       debugDatabase('Member removed successfully', { memberId, memberRole: member.role });
 
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'member.remove',
+        targetType: 'member',
+        targetId: memberId,
+        metadata: {
+          removedUserId: member.user_id,
+          removedRole: member.role,
+        },
+        headers: requestHeaders,
+      });
+
       revalidatePath('/[tenant]/team', 'page');
       
       return {
@@ -410,7 +465,7 @@ export const transferOwnershipAction = actionClient
         .single();
 
       const previousOwnerName = currentOwnerUser?.name || 'The previous owner';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const newOwnerUsers = newOwnerMember.users as { name?: string; email?: string } | null;
       const newOwnerName = newOwnerUsers?.name || 'User';
       const newOwnerEmail = newOwnerUsers?.email;
@@ -467,6 +522,20 @@ export const transferOwnershipAction = actionClient
         }
       }
 
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'organization.transferOwnership',
+        targetType: 'organization_member',
+        targetId: newOwnerMemberId,
+        metadata: {
+          previousOwnerId: session.user.id,
+          newOwnerId: newOwnerMember.user_id,
+        },
+        headers: requestHeaders,
+      });
+
       revalidatePath('/[tenant]/team', 'page');
       
       return {
@@ -517,7 +586,7 @@ export const updateMemberRoleAction = actionClient
       }
 
       // Prevent demoting the last owner
-      if (member.role === 'owner' && role !== 'owner') {
+      if (member.role === 'owner') {
         const { data: ownerCount } = await supabaseAdmin
           .from('organization_members')
           .select('id', { count: 'exact' })
@@ -546,6 +615,21 @@ export const updateMemberRoleAction = actionClient
         memberId, 
         oldRole: member.role, 
         newRole: role 
+      });
+
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId,
+        actorId: session.user.id,
+        action: 'member.role.update',
+        targetType: 'member',
+        targetId: memberId,
+        metadata: {
+          previousRole: member.role,
+          newRole: role,
+          updatedUserId: member.user_id,
+        },
+        headers: requestHeaders,
       });
 
       revalidatePath('/[tenant]/team', 'page');
@@ -610,12 +694,33 @@ export const getTeamMembersAction = actionClient
         throw new Error('Failed to fetch team members');
       }
 
-      const teamMembers: TeamMember[] = members.map(member => ({
+      type MemberRecord = {
+        id: string;
+        user_id: string;
+        role: string;
+        status: string;
+        created_at: string;
+        users:
+          | {
+          name: string | null;
+          email: string;
+          avatar_url: string | null;
+          }
+          | Array<{
+              name: string | null;
+              email: string;
+              avatar_url: string | null;
+            }>;
+      };
+
+      const memberRecords = (members ?? []) as MemberRecord[];
+
+      const teamMembers: TeamMember[] = memberRecords.map(member => ({
         id: member.id,
         userId: member.user_id,
-        name: member.users.name || 'Unknown',
-        email: member.users.email,
-        avatarUrl: member.users.avatar_url,
+        name: (Array.isArray(member.users) ? member.users[0]?.name : member.users?.name) || 'Unknown',
+        email: Array.isArray(member.users) ? member.users[0]?.email ?? '' : member.users?.email ?? '',
+        avatarUrl: Array.isArray(member.users) ? member.users[0]?.avatar_url ?? null : member.users?.avatar_url ?? null,
         role: member.role as 'owner' | 'admin' | 'member',
         status: member.status as 'active' | 'pending' | 'suspended',
         joinedAt: member.created_at
@@ -686,16 +791,39 @@ export const getPendingInvitationsAction = actionClient
         throw new Error('Failed to fetch pending invitations');
       }
 
-      const pendingInvitations: PendingInvitation[] = invitations.map(invitation => ({
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role as 'admin' | 'member',
-        token: invitation.token,
-        expiresAt: invitation.expires_at,
-        invitedBy: invitation.invited_by,
-        invitedByName: invitation.users?.name || 'Unknown',
-        createdAt: invitation.created_at
-      }));
+      type InvitationRecord = {
+        id: string;
+        email: string;
+        role: string;
+        token: string;
+        expires_at: string;
+        invited_by: string;
+        created_at: string;
+        users:
+          | {
+              name: string | null;
+            }
+          | Array<{
+              name: string | null;
+            }>;
+      };
+
+      const invitationRecords = (invitations ?? []) as InvitationRecord[];
+
+      const pendingInvitations: PendingInvitation[] = invitationRecords.map(invitation => {
+        const inviter = Array.isArray(invitation.users) ? invitation.users[0] : invitation.users;
+        
+        return {
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role as 'admin' | 'member',
+          token: invitation.token,
+          expiresAt: invitation.expires_at,
+          invitedBy: invitation.invited_by,
+          invitedByName: inviter?.name || 'Unknown',
+          createdAt: invitation.created_at,
+        };
+      });
 
       debugDatabase('Pending invitations fetched successfully', { 
         count: pendingInvitations.length,
@@ -732,6 +860,7 @@ export const acceptInvitationAction = actionClient
           email,
           role,
           organization_id,
+          invited_by,
           expires_at,
           organizations!inner (
             id,
@@ -796,10 +925,28 @@ export const acceptInvitationAction = actionClient
         role: invitation.role
       });
 
+      const requestHeaders = headers();
+      await logAuditEvent({
+        organizationId: invitation.organization_id,
+        actorId: session.user.id,
+        action: 'invitation.accept',
+        targetType: 'invitation',
+        targetId: invitation.id,
+        metadata: {
+          role: invitation.role,
+          invitedBy: invitation.invited_by,
+        },
+        headers: requestHeaders,
+      });
+
+      const organization = Array.isArray(invitation.organizations)
+        ? invitation.organizations[0]
+        : invitation.organizations;
+
       return {
         success: true,
         message: 'Successfully joined the organization',
-        organizationSlug: invitation.organizations.slug
+        organizationSlug: organization?.slug
       };
     } catch (error) {
       logError(error, 'acceptInvitationAction');

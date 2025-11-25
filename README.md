@@ -20,6 +20,7 @@ A production-ready multi-tenant SaaS scaffolding built with Next.js 15, Supabase
 - ✅ **Feature Flags** - Modular feature system for easy customization
 
 ### Modular Features (Configurable)
+- 🔧 **Audit Log** - Organization activity auditing and history (feature flag `auditLog`)
 - 🔧 **Analytics** - Usage tracking and analytics dashboard
 - 🔧 **Notifications** - Email and push notification system
 - 🔧 **API Keys** - API key management for integrations
@@ -74,10 +75,18 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # NextAuth Configuration (Required)
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-nextauth-secret
+NEXTAUTH_DEBUG=true
+
+# JWT Configuration for Microservices (Required)
+JWT_SECRET=your-jwt-secret-key-min-32-characters-long
+JWT_REFRESH_SECRET=your-jwt-refresh-secret-key-optional-uses-jwt-secret-if-not-set
+JWT_ISSUER=saas-scaffolding
+JWT_AUDIENCE=microservices
 
 # Google OAuth (Optional)
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id
 
 # Stripe Configuration (Required for billing)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
@@ -88,8 +97,27 @@ STRIPE_ENTERPRISE_PRICE_ID=price_...
 
 # App Configuration (Optional)
 NEXT_PUBLIC_APP_NAME="My SaaS"
-NEXT_PUBLIC_APP_URL=https://app.example.com
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_DEFAULT_LOGO_URL=/logo.svg
+
+# Resend Configuration (Required for emails)
+RESEND_API_KEY=re_...
+
+# Email Configuration
+EMAIL_FROM=noreply@example.com
+
+# Debug Configuration
+DEBUG_LEVEL=DEBUG
+DEBUG_AUTH=true
+DEBUG_EMAIL=true
+DEBUG_DATABASE=true
+DEBUG_API=true
+
+# Feature Flags (Optional)
+FEATURES__AUDIT_LOG=false
+FEATURES__STRIPE_SUPPORT=false
+NEXT_PUBLIC_FEATURES__AUDIT_LOG=false
+NEXT_PUBLIC_FEATURES__STRIPE_SUPPORT=false
 ```
 
 ### 3. Database Setup
@@ -113,11 +141,20 @@ NEXT_PUBLIC_DEFAULT_LOGO_URL=/logo.svg
    -- 4. Organization logo support
    -- File: supabase/migrations/004_add_logo_url.sql
    
-   -- 5. Row Level Security policies (must run after all migrations)
+   -- 5. Refresh token support
+   -- File: supabase/migrations/005_refresh_tokens.sql
+
+   -- 6. Automatic domain allow-list configuration
+   -- File: supabase/migrations/006_auto_accept_domain_setting.sql
+
+   -- 7. Audit logs table and policies
+   -- File: supabase/migrations/007_audit_logs.sql
+
+   -- 8. Row Level Security policies (must run after all migrations)
    -- File: supabase/policies/rls_policies.sql
    ```
 
-3. Verify that Row Level Security is enabled on all tables (this is automatically done by step 5 above, but you can verify in Supabase dashboard)
+3. Verify that Row Level Security is enabled on all tables (this is automatically done by step 7 above, but you can verify in Supabase dashboard)
 4. Set up authentication providers in Supabase dashboard
 
 #### Database Schema
@@ -131,9 +168,13 @@ The scaffolding includes these main tables:
 
 #### Supabase Storage Setup
 
-1. Create a storage bucket named `organization-logos` in Supabase Dashboard
-2. Set the bucket to public access
-3. Configure bucket policies for uploads (users can upload, public can read)
+1. Create two public storage buckets in Supabase Dashboard:
+   - `organization-logos`
+   - `user-avatars`
+2. For each bucket, enable **Public** access so assets can be served via CDN.
+3. Configure storage policies to allow authenticated uploads and public reads by running the script in `supabase/storage/storage_policies.sql` inside the Supabase SQL editor (it covers both buckets).
+
+> The application uses the Supabase service role for backend uploads, which bypasses these policies. Applying the script still ensures dashboard operations or any client-side tooling follow consistent, secure rules.
 
 ### 4. Stripe Setup (Optional)
 
@@ -166,17 +207,27 @@ npm run dev
 
 Visit `http://localhost:3000` to see your application.
 
+### 7. Run the Test Suite (Optional but recommended)
+
+```bash
+npm test
+```
+
+> The repository ships with Vitest-based unit tests covering the feature flag helpers, audit logger, and audit log API route.
+
 ## Project Structure
 
 ```
 ├── /app
 │   ├── /auth (login/signup)
+│   │   └── /post-login (post-auth redirect resolver)
 │   ├── /setup (organization onboarding)
 │   ├── /[tenant] (tenant-specific routes)
 │   │   ├── /dashboard
 │   │   ├── /profile (user profile & settings)
 │   │   ├── /team (team management)
 │   │   ├── /billing
+│   │   ├── /audit-log (organization audit trail, feature flagged)
 │   │   ├── /settings (organization settings)
 │   │   ├── /analytics (placeholder)
 │   │   ├── /api-keys (placeholder)
@@ -184,6 +235,7 @@ Visit `http://localhost:3000` to see your application.
 │   └── /api (API routes)
 │       ├── /auth (authentication endpoints)
 │       ├── /organizations (organization management)
+│       ├── /tenants/[tenant]/audit-logs (audit log listings, feature flagged)
 │       └── /webhooks (webhook handlers)
 ├── /components
 │   ├── /ui (shadcn components)
@@ -234,8 +286,25 @@ export const featuresConfig = {
     name: 'Analytics',
     description: 'Usage tracking and analytics',
   },
+  auditLog: {
+    enabled: false,
+    name: 'Audit Log',
+    description: 'Organization activity auditing and history',
+  },
+  stripeSupport: {
+    enabled: false,
+    name: 'Stripe Support',
+    description: 'Stripe integration for billing and payments',
+  },
   // ... other features
 };
+```
+
+Feature flags can be overridden per-environment without changing the codebase. Set `FEATURES__<FEATURE_NAME>=true|false` for server-only evaluation or `NEXT_PUBLIC_FEATURES__<FEATURE_NAME>=true|false` when client-side checks are required. For example, enable the audit log in production with:
+
+```bash
+FEATURES__AUDIT_LOG=true
+NEXT_PUBLIC_FEATURES__AUDIT_LOG=true
 ```
 
 ## Customization
@@ -361,6 +430,12 @@ For questions and support:
 - **Logo Display**: Logo appears in top-left corner of all tenant pages
 - **Organization Deletion**: Owner can delete organization (requires confirmation)
 - **Settings Access**: Only owners and admins can access organization settings
+
+### Audit Log (Feature Flag: `auditLog`)
+- **Visibility**: Accessible at `/[tenant]/audit-log` for organization owners and admins
+- **Contents**: Shows action, actor, target, metadata, IP address, and user agent for every mutating action in the organization
+- **Data Source**: Stored in the Supabase `audit_logs` table with RLS protections
+- **Enablement**: Toggle via `FEATURES__AUDIT_LOG=true` (and `NEXT_PUBLIC_FEATURES__AUDIT_LOG=true` if the UI should resolve it client-side)
 
 ### Team Management
 - **Member Invitations**: Send email invitations to join organization

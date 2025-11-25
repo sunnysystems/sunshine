@@ -1,14 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { toast } from 'sonner';
-import { UserPlus, Loader2 } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { UserPlus, Loader2 } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
+
 import { inviteMemberAction } from '@/actions/team-actions';
-import { inviteMemberSchema, type InviteMemberData } from '@/lib/form-schema';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -35,6 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useTranslation } from '@/hooks/useTranslation';
+import { inviteMemberSchema, type InviteMemberData } from '@/lib/form-schema';
 
 interface InviteMemberDialogProps {
   organizationId: string;

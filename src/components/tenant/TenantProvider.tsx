@@ -12,12 +12,12 @@ const TenantContext = createContext<TenantContextType | undefined>(undefined);
 interface TenantProviderProps {
   children: ReactNode;
   tenant: string;
-  role: string;
+  tenantRole: string;
 }
 
-export function TenantProvider({ children, tenant, role }: TenantProviderProps) {
+export function TenantProvider({ children, tenant, tenantRole }: TenantProviderProps) {
   return (
-    <TenantContext.Provider value={{ tenant, role }}>
+    <TenantContext.Provider value={{ tenant, role: tenantRole }}>
       {children}
     </TenantContext.Provider>
   );

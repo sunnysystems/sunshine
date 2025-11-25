@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { useTheme } from 'next-themes';
-import { toast } from 'sonner';
+
 import { 
   User, 
   Lock, 
@@ -15,22 +13,24 @@ import {
   Monitor,
   Loader2
 } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import { getUserProfileAction, updateProfileAction, updatePreferencesAction } from '@/actions/profile-actions';
-import { ChangePasswordDialog } from '@/components/profile/ChangePasswordDialog';
-import { Enable2FADialog } from '@/components/profile/Enable2FADialog';
-import { Disable2FADialog } from '@/components/profile/Disable2FADialog';
-import { DeleteAccountDialog } from '@/components/profile/DeleteAccountDialog';
 import { AvatarUpload } from '@/components/profile/AvatarUpload';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChangePasswordDialog } from '@/components/profile/ChangePasswordDialog';
+import { DeleteAccountDialog } from '@/components/profile/DeleteAccountDialog';
+import { Disable2FADialog } from '@/components/profile/Disable2FADialog';
+import { Enable2FADialog } from '@/components/profile/Enable2FADialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface UserProfileData {
   name: string;
@@ -51,7 +51,6 @@ interface UserProfileData {
 
 export default function ProfilePage() {
   const { t } = useTranslation();
-  const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -94,7 +93,7 @@ export default function ProfilePage() {
         setIsEditingName(false);
         await loadProfile();
       }
-    } catch (error) {
+    } catch {
       toast.error(t('profile.updateError'));
     } finally {
       setIsSaving(false);
@@ -168,13 +167,6 @@ export default function ProfilePage() {
     return <div>{t('profile.loadError')}</div>;
   }
 
-  const initials = profileData.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-
   return (
     <div className="space-y-6">
       <div>
@@ -215,7 +207,6 @@ export default function ProfilePage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <AvatarUpload
-                userId={session?.user?.id || ''}
                 currentAvatarUrl={profileData.avatarUrl}
                 userEmail={profileData.email}
                 userName={profileData.name}

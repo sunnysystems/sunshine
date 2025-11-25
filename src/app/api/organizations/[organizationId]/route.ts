@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getServerSession } from 'next-auth/next';
+
+import { logAuditEvent } from '@/lib/audit-logger';
 import { authOptions } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import { canManageMembers } from '@/lib/permissions';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function PATCH(
   request: NextRequest,
@@ -98,6 +100,19 @@ export async function PATCH(
         { status: 500 }
       );
     }
+
+    await logAuditEvent({
+      organizationId,
+      actorId: session.user.id,
+      action: 'organization.rename',
+      targetType: 'organization',
+      targetId: organizationId,
+      metadata: {
+        previousName: org.name,
+        newName: trimmedName,
+      },
+      request,
+    });
 
     return NextResponse.json(updatedOrg, { status: 200 });
   } catch (error: unknown) {

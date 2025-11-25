@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import { signIn, getSession } from 'next-auth/react';
+import { signIn } from 'next-auth/react';
 import { FcGoogle } from 'react-icons/fc';
 
 import { Background } from '@/components/background';
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useBrowserTranslation } from '@/hooks/useBrowserTranslation';
 
-export default function SignIn() {
+function SignInContent() {
   const { t } = useBrowserTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -169,12 +169,10 @@ export default function SignIn() {
     setError('');
     try {
       // Preserve invite token in callback URL
-      const callbackUrl = inviteToken ? `/accept-invite?token=${inviteToken}` : '/setup';
-      
-      // Redirect directly to the Google OAuth provider URL
-      // This ensures we bypass any NextAuth signin page redirects
-      const callbackUrlParam = encodeURIComponent(callbackUrl);
-      window.location.href = `/api/auth/signin/google?callbackUrl=${callbackUrlParam}`;
+      const callbackUrl = inviteToken
+        ? `/auth/post-login?invite=${encodeURIComponent(inviteToken)}`
+        : '/auth/post-login';
+      await signIn('google', { callbackUrl });
     } catch (error) {
       console.error('Google sign in exception:', error);
       setError(t('auth.signin.googleError'));
@@ -302,5 +300,32 @@ export default function SignIn() {
         </div>
       </section>
     </Background>
+  );
+}
+
+function SignInLoading() {
+  return (
+    <Background>
+      <section className="py-28 lg:pt-44 lg:pb-32">
+        <div className="container">
+          <div className="flex justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-6" />
+              <p className="text-sm text-muted-foreground">
+                Carregando...
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </Background>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<SignInLoading />}>
+      <SignInContent />
+    </Suspense>
   );
 }

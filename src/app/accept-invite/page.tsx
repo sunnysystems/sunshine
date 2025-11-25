@@ -1,15 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { Suspense, useEffect, useState } from 'react';
+
 import { useSearchParams, useRouter } from 'next/navigation';
-import { signIn, useSession } from 'next-auth/react';
+
+import { Loader2, CheckCircle, XCircle, LogIn } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+
 import { acceptInvitationAction } from '@/actions/team-actions';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CheckCircle, XCircle, LogIn } from 'lucide-react';
 
-export default function AcceptInvitePage() {
+function AcceptInvitePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -63,8 +68,9 @@ export default function AcceptInvitePage() {
         
         // Redirect to organization dashboard after 2 seconds
         setTimeout(() => {
-          if (result.data.organizationSlug) {
-            router.push(`/${result.data.organizationSlug}/dashboard`);
+          const organizationSlug = result.data?.organizationSlug;
+          if (organizationSlug) {
+            router.push(`/${organizationSlug}/dashboard`);
           } else {
             router.push('/dashboard');
           }
@@ -201,5 +207,31 @@ export default function AcceptInvitePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AcceptInviteLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-center">Loading invitation...</CardTitle>
+          <CardDescription className="text-center">
+            We are preparing your invitation details. Hold on a moment.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense fallback={<AcceptInviteLoading />}>
+      <AcceptInvitePageContent />
+    </Suspense>
   );
 }
