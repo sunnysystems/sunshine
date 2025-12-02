@@ -37,6 +37,25 @@ export const translations = {
       signOut: 'Sign out',
       createOrganization: 'Create Organization',
       organizations: 'Organizations',
+      datadogSuite: 'Datadog Suite',
+      datadogObservability: 'Observability Workspace',
+      datadogAutomation: 'AI & Automation Lab',
+      datadogIntegrations: 'Communications',
+      datadogFinops: 'FinOps & Forecasting',
+      datadogApiCredentials: 'API Credentials',
+      costGuard: 'Cost Guard',
+      statusPages: 'Status Pages',
+      externalSynthetics: 'External Synthetics',
+      logFilters: 'Log Exclusion Filters',
+      businessObservability: 'Business Observability',
+      correlationStories: 'Correlation Stories',
+      observabilityMaturity: 'Observability Maturity',
+      aiAssistant: 'AI Assistant',
+      performanceRemediation: 'Performance Remediation',
+      errorAutofix: 'Error Auto-Fix',
+      costInsights: 'Cost Insights',
+      communicationIntegrations: 'Communication Integrations',
+      finopsForecast: 'FinOps Forecast',
     },
     roles: {
       owner: 'Owner',
@@ -205,6 +224,38 @@ export const translations = {
       underDevelopment: 'Under Development',
       underDevelopmentDescription: "We're working on implementing billing features",
       underDevelopmentMessage: 'Billing features are under development. Please check back soon.',
+    },
+    datadog: {
+      credentials: {
+        title: 'Datadog API Credentials',
+        subtitle: 'Provide your organization-level API and application keys so Datadog workflows can unlock inside Sunshine.',
+        alertTitle: 'Heads up',
+        alertBody: 'Keys are stored in your browser for demo purposes only. Production deployments must store secrets securely (e.g., Supabase encrypted columns or secret managers).',
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'pubxxxxxxxxxxxxxxxxxxxx',
+        appKeyLabel: 'Application Key',
+        appKeyPlaceholder: 'appxxxxxxxxxxxxxxxxxxxx',
+        existingSecretNote: 'Re-enter both keys to replace the stored values.',
+        saveButton: 'Save credentials',
+        saving: 'Saving...',
+        success: 'Credentials saved locally. Datadog modules are now available.',
+        error: 'API Key and Application Key are required.',
+        removeButton: 'Remove credentials',
+        removeDialogTitle: 'Remove stored credentials?',
+        removeDialogDescription: 'This removes the Datadog API and application keys stored in this browser for the current tenant.',
+        removeConfirm: 'Yes, remove credentials',
+        removed: 'Credentials removed from this device.',
+        statusTitle: 'Status',
+        statusConfigured: 'Configured',
+        statusPending: 'Not configured',
+        statusUpdated: 'Last updated {date}',
+        statusNever: 'Never configured',
+        checklistTitle: 'Next steps',
+        checklistObservability: 'Explore the Observability Workspace pages with your stakeholders.',
+        checklistAutomation: 'Review AI & Automation Lab flows for MCP enablement.',
+        checklistCommunications: 'Plan channel automation under Communications.',
+        checklistFinops: 'Validate FinOps forecast assumptions with finance.',
+      },
     },
     auditLog: {
       title: 'Audit Log',
@@ -492,6 +543,471 @@ export const translations = {
         error: 'An error occurred. Please try again.',
       },
     },
+    datadog: {
+      navigation: {
+        section: 'Datadog Suite',
+        setup: 'Setup',
+        apiCredentials: 'API Credentials',
+        observability: 'Observability',
+        costGuard: 'Cost Guard',
+        statusPages: 'Custom Status Pages',
+        synthetics: 'External Synthetics',
+        logFilters: 'Auto Log Filters',
+        businessObservability: 'Business Observability',
+        correlationStories: 'Correlation Stories',
+        observabilityMaturity: 'Observability Maturity',
+        automation: 'Automation Lab',
+        aiAssistant: 'Natural Language Queries',
+        performanceRemediation: 'Profiler Remediation',
+        errorAutofix: 'Error Auto-fix',
+        costInsights: 'AI Cost Insights',
+        integrations: 'Communication Hub',
+        communications: 'Channel Integrations',
+        finops: 'FinOps',
+        finopsForecast: 'Predictive FinOps',
+        costGuard: 'Cost Guard',
+        costGuardContract: 'Contract Overview',
+        costGuardMetrics: 'Metrics & Projections',
+        costGuardActions: 'Playbooks & Alerts',
+      },
+      shared: {
+        highlightsTitle: 'Highlights',
+        actionsTitle: 'Next Steps',
+        mockTitle: 'Prototype view',
+        mockNotice: 'Mock data for UX validation only.',
+        credentialsRequiredTitle: 'Datadog credentials required',
+        credentialsRequiredBody:
+          'Add your Datadog API and Application keys in the setup page to unlock this view.',
+      },
+      apiCredentials: {
+        title: 'Datadog API Credentials',
+        subtitle: 'Connect your organization to Datadog with scoped keys.',
+        description:
+          'Keys are stored in your browser for now. Supabase persistence with encryption will be added soon.',
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'dd_api_key_xxx',
+        appKeyLabel: 'Application Key',
+        appKeyPlaceholder: 'dd_app_key_xxx',
+        saveCta: 'Save credentials',
+        saving: 'Saving...',
+        saved: 'Credentials stored locally',
+        reset: 'Clear form',
+        help: 'Use keys scoped to the products you want to activate. Rotate them periodically.',
+        notice:
+          'After saving, the Datadog navigation will surface Observability, Automation, and FinOps modules.',
+        notesLabel: 'Internal notes',
+        notesPlaceholder: 'Add scope, rotation policy, or owner contacts...',
+        lastUpdated: 'Last updated: {timestamp}',
+        error: 'Unable to store credentials. Please try again.',
+      },
+      observability: {
+        costGuard: {
+          title: 'Cost Guard',
+          subtitle:
+            'Forecast Datadog usage, spot overages, and inform teams before on-demand pricing kicks in.',
+          highlights:
+            'Daily usage vs. contract baseline\nProjected month-end spend\nTop services driving unexpected growth',
+          actions:
+            'Capture contract thresholds per product\nConnect the usage metering API for live data\nNotify FinOps before thresholds are breached',
+          metricsTitle: 'Forecast snapshot',
+          metrics: {
+            dailyBurnLabel: 'Daily burn vs contract',
+            dailyBurnValue: '118%',
+            dailyBurnDetail: '$4,820 / $4,080',
+            projectedLabel: 'Projected month-end spend',
+            projectedValue: '$42K',
+            projectedDetail: '+12% vs plan',
+            watchlistLabel: 'Services in watchlist',
+            watchlistValue: '5',
+            watchlistDetail: 'Ingest spikes in ingest-labs*',
+          },
+        },
+        statusPages: {
+          title: 'Custom Status Pages',
+          subtitle:
+            'Build branded status pages—internal or public—without enabling Incident Management.',
+          highlights:
+            'Template library with SLA/SLO widgets\nAudience segmentation (internal, customers, execs)\nAutomatic outage timeline populated via API',
+          actions:
+            'Decide which monitors feed each page\nConnect to company DNS or landing pages\nPlan multilingual status messaging',
+          calloutTitle: 'Wireframe checklist',
+          calloutBody:
+            'Document the hero blocks, incident timeline layout, and localization strategy before syncing with design.',
+          calloutDetails:
+            'Hero: uptime summary + impact statement\nTimeline: incidents, maintenance, annotations\nAudience toggles: internal vs public copy',
+        },
+        synthetics: {
+          title: 'External Synthetic Tests',
+          subtitle:
+            'Aggregate custom synthetic checks that run outside Datadog and publish the results via API.',
+          highlights:
+            'Heartbeat grid with pass/fail trend\nLatency histograms per region\nDrill-down links to raw execution logs',
+          actions:
+            'Upload synthetic definitions from your script repo\nSchedule MCP sync jobs for test runs\nSet up alert routing by severity',
+          calloutTitle: 'Execution flow',
+          calloutBody:
+            'List which runners execute each check, how results are batched, and how often MCP reconciles test metadata.',
+          calloutDetails:
+            'Schedulers: cron + MCP jobs\nRunners: GitHub Actions, self-hosted agents\nPayload: JSON schema per execution',
+        },
+        logFilters: {
+          title: 'Automatic Log Exclusion Filters',
+          subtitle:
+            'Protect quotas by enabling automatic exclusion rules when ingestion hits 100% of the allowance.',
+          highlights:
+            'Real-time quota meters for ingestion, index, security\nAuto-generated filter suggestions by service\nRollback scheduler for the next billing cycle',
+          actions:
+            'Tag services that can tolerate sampled logs\nConfigure monthly reset cadence\nAlign with security team before enabling exclusions',
+          calloutTitle: 'Policy draft',
+          calloutBody:
+            'Capture approval workflow, rollback triggers, and communication templates before enabling automated exclusions.',
+          calloutDetails:
+            'Trigger: 100% quota for ingestion/index/security\nAction: apply exclusion filters by tag\nRollback: first day of next cycle',
+        },
+        businessObservability: {
+          title: 'Business Observability',
+          subtitle:
+            'Blend conversion, revenue, and retention metrics with platform health signals inside Datadog dashboards.',
+          highlights:
+            'Unified KPI board with technical + business metrics\nAutomatic correlation hints when KPIs degrade\nStakeholder-ready exports with commentary blocks',
+          actions:
+            'Define the authoritative source for business events\nDocument KPI to service ownership mapping\nPrepare governance rules for who can publish dashboards',
+          calloutTitle: 'Data contracts',
+          calloutBody:
+            'List metric owners, refresh cadence, and validation steps to keep dashboards trustworthy.',
+          calloutDetails:
+            'Source systems mapped to KPIs\nOwner + backup for each metric\nAlerting rules when data freshness fails',
+        },
+        correlationStories: {
+          title: 'Correlation Stories',
+          subtitle:
+            'Tell cause-and-effect stories that link technical incidents to customer or financial impact.',
+          highlights:
+            'Timeline cards mixing traces, logs, and revenue drops\nStory templates for postmortems and weekly reviews\nImpact heatmap that highlights the most affected teams',
+          actions:
+            'Collect sample stories from recent incidents\nOutline the attribution model between metrics\nDesign approval workflow for publishing stories',
+          calloutTitle: 'Story builder',
+          calloutBody:
+            'Sketch the storytelling sections (context, signals, impact, actions) and who curates each block.',
+          calloutDetails:
+            'Context: what happened and when\nSignals: technical data points to highlight\nImpact: customer, revenue, regulatory notes\nActions: remediation + follow-up tasks',
+        },
+        observabilityMaturity: {
+          title: 'Observability Maturity Heatmap',
+          subtitle:
+            'Score coverage across logs, metrics, traces, RUM, security, and business telemetry.',
+          highlights:
+            'Domain-level maturity radar chart\nGap analysis sorted by impact vs. effort\nRecommendations for the next quarter roadmap',
+          actions:
+            'Define scoring rubric for each observability pillar\nSurvey domain owners to validate maturity scores\nPair heatmap with enablement backlog items',
+          calloutTitle: 'Scoring guide',
+          calloutBody:
+            'Share the scoring formula, thresholds, and evidence required so domains can self-assess consistently.',
+          calloutDetails:
+            'Score levels 1-5 with definitions\nEvidence examples per pillar\nReview cadence and stakeholders',
+        },
+      },
+      automation: {
+        aiAssistant: {
+          title: 'Natural Language Queries',
+          subtitle:
+            'Ask Datadog about metrics, logs, and traces using plain English or Portuguese—powered by MCP.',
+          highlights:
+            'Secure prompt templates grounded on Datadog query syntax\nSuggested follow-up questions and saved threads\nExport answers into incident timelines or Slack updates',
+          actions:
+            'List the datasets that MCP can access\nDefine guardrails for data redaction\nPlan auditing for prompt/response history',
+          calloutTitle: 'Assistant script',
+          calloutBody:
+            'Design prompt scaffolds, fallback answers, and handoff rules before connecting to MCP.',
+          calloutDetails:
+            'Define supported intents (metrics, logs, traces)\nMap intent → Datadog query builder\nConfigure response formatting + tone\nLog prompts/responses for auditing',
+        },
+        performanceRemediation: {
+          title: 'Profiler Remediation',
+          subtitle:
+            'Review profiler insights and auto-generate GitHub pull requests with optimization suggestions.',
+          highlights:
+            'CPU and memory hotspot explorer\nDiff view between baseline and regression releases\nPR composer with code snippets and rollout plan',
+          actions:
+            'Connect Datadog Profiler to your services\nMap repositories to teams for PR ownership\nEstablish approval policy for AI-generated PRs',
+          calloutTitle: 'Remediation pipeline',
+          calloutBody:
+            'Outline how profiler findings become GitHub issues or PRs, including reviewers and rollout checks.',
+          calloutDetails:
+            'Select services + repos for automation\nDefine PR template sections\nSet performance regression thresholds\nPlan integration tests before merge',
+        },
+        errorAutofix: {
+          title: 'Error Auto-fix',
+          subtitle:
+            'Detect error bursts or stack traces and draft remediation PRs automatically.',
+          highlights:
+            'Real-time error clustering dashboard\nRoot-cause hints linking recent deploys\nSafety checklist before opening a PR',
+          actions:
+            'Enable log-based error tracking in target services\nDefine rollback and verification playbooks\nDecide when to loop humans before merging',
+          calloutTitle: 'Guardrails',
+          calloutBody:
+            'Decide when MCP can open PRs automatically vs. request human review.',
+          calloutDetails:
+            'Severity levels that allow automation\nOwners notified per service\nVerification steps after deployment\nRollback triggers and escalation',
+        },
+        costInsights: {
+          title: 'AI Cost Insights',
+          subtitle:
+            'Let MCP inspect usage patterns and recommend contract or configuration tweaks to reduce spend.',
+          highlights:
+            'Service-level cost per signal comparisons\nRecommended sampling or retention policies\nSaved insight threads with owner assignment',
+          actions:
+            'Tag Datadog resources with product and environment metadata\nAttach cost thresholds per team\nSchedule recurring insight reviews with FinOps',
+          calloutTitle: 'Insight playbook',
+          calloutBody:
+            'Draft how recommendations are triaged, assigned, and validated with FinOps.',
+          calloutDetails:
+            'Insight categories: ingestion, retention, licensing\nOwner auto-assignment rules\nValidation checklist per category\nFeedback loop into MCP prompts',
+        },
+      },
+      integrations: {
+        communications: {
+          title: 'Communication Hub',
+          subtitle:
+            'Wire Datadog alerts and insights into collaboration tools such as Slack or Teams.',
+          highlights:
+            'Channel routing by topic (FinOps, platform, product)\nSlash commands for ad-hoc status checks\nTwo-way acknowledgement syncing back to Datadog',
+          actions:
+            'Document the list of canonical channels and owners\nSet up webhook secrets per workspace\nPilot playbooks for incident and FinOps updates',
+          calloutTitle: 'Channel blueprint',
+          calloutBody:
+            'Outline which insights hit which channel, and how teams can request new subscriptions.',
+          calloutDetails:
+            'Channel taxonomy and owners\nAllowed commands and permissions\nEscalation ladder per topic\nWebhook + secret rotation policy',
+        },
+      },
+      finops: {
+        forecast: {
+          title: 'Predictive FinOps',
+          subtitle:
+            'Combine historical usage with trend projections to anticipate when the budget will breach.',
+          highlights:
+            'Burn-rate charts with confidence intervals\nAlert simulator for 80/90/100% thresholds\nWhat-if sliders for growth or optimization scenarios',
+          actions:
+            'Import historical spend from Datadog billing API\nAlign forecast cadence with finance reporting\nDefine escalation paths when forecasts exceed 100%',
+          calloutTitle: 'Forecast playbook',
+          calloutBody:
+            'Decide who owns forecast reviews, when alerts fire, and how mitigation plans are tracked.',
+          calloutDetails:
+            'Review cadence & participants\nAlert thresholds and recipients\nMitigation plan template\nKPIs tracked post-mitigation',
+        },
+      },
+      costGuard: {
+        heroTitle: 'Cost Guard Overview',
+        heroSubtitle:
+          'Track committed Datadog spend, watch consumption trends, and trigger FinOps actions before overages hit.',
+        heroPrimaryCta: 'Create mitigation playbook',
+        heroSecondaryCta: 'Adjust thresholds',
+        summary: {
+          contractedSpend: 'Committed value',
+          projectedSpend: 'Projected month-end',
+          utilization: 'Average utilization',
+          runway: 'Days to 100%',
+          overageRisk: 'Overage risk',
+          statusOk: 'On track',
+          statusWatch: 'Watch',
+          statusCritical: 'Critical',
+        },
+        contractCard: {
+          title: 'Active contract',
+          description:
+            'Track the official commitments negotiated with Datadog by product line. Update thresholds to tailor early warnings.',
+          planLabel: 'Plan',
+          cycleLabel: 'Billing cycle',
+          thresholdLabel: 'Default thresholds',
+          editButton: 'Edit contract',
+        },
+        contractEdit: {
+          title: 'Edit contract',
+          description:
+            'Update your Datadog commitments, thresholds, and stakeholders. Changes apply to forecasts and alerts immediately.',
+          sections: {
+            overview: 'Contract overview',
+            products: 'Product commitments',
+            thresholds: 'Threshold overrides',
+          },
+          fields: {
+            contractName: 'Platform',
+            contractCycle: 'Billing cycle',
+            startDate: 'Start date',
+            endDate: 'End date',
+            productLabel: 'Product',
+            unitLabel: 'Unit',
+            committedLabel: 'Committed amount',
+            thresholdLabel: 'Custom threshold (optional)',
+          },
+          actions: {
+            addProduct: 'Add product',
+            reset: 'Discard changes',
+            save: 'Save contract changes',
+          },
+        },
+        metricsSection: {
+          title: 'Usage by product',
+          description:
+            'Monitor technical signals vs. contractual limits. Thresholds mark when automation or notifications should kick in.',
+          usageLabel: 'Usage',
+          limitLabel: 'Limit',
+          thresholdLabel: 'Threshold',
+          projectionLabel: 'Projected',
+          trend7d: '7-day trend',
+        },
+        metricsPage: {
+          filters: {
+            all: 'All metrics',
+            logs: 'Logs & Metrics',
+            apm: 'APM & Tracing',
+            infra: 'Infrastructure',
+            experience: 'Digital Experience',
+          },
+        },
+        table: {
+          title: 'Detailed breakdown',
+          metricColumn: 'Metric',
+          unitColumn: 'Unit',
+          usageColumn: 'Usage',
+          limitColumn: 'Committed',
+          thresholdColumn: 'Threshold',
+          projectedColumn: 'Projected',
+          statusColumn: 'Status',
+          actionsColumn: 'Next action',
+          actionTuneSampling: 'Review sampling policy',
+          actionEnableFilters: 'Enable exclusion filters',
+          actionReviewContract: 'Review contract',
+          statusOk: 'OK',
+          statusWatch: 'Watch',
+          statusCritical: 'Critical',
+        },
+        timeline: {
+          title: 'Upcoming milestones',
+          description:
+            'Anticipate what happens next and align FinOps, platform, and procurement teams.',
+          items: {
+            watch: {
+              title: 'Logs ingestion hitting 80%',
+              caption: 'Trigger sample playbook and notify FinOps',
+            },
+            review: {
+              title: 'Custom metrics trending +15%',
+              caption: 'Schedule review with observability champions',
+            },
+            renew: {
+              title: 'Contract renewal window opens',
+              caption: 'Start renegotiation checklist with procurement',
+            },
+          },
+        },
+        actionsPage: {
+          title: 'Playbooks & Alerts',
+          subtitle:
+            'Translate early warnings into targeted actions. Configure thresholds, automation, and communications per product.',
+          playbookTitle: 'Playbook library',
+          playbookDescription:
+            'Standard operating procedures for the most common overage scenarios.',
+          automationTitle: 'Automations & integrations',
+          automationDescription:
+            'Connect Cost Guard signals with filters, MCP assistants, and collaboration tools.',
+          thresholdsTitle: 'Threshold overrides',
+          thresholdsDescription:
+            'Fine-tune the warning levels per product and assign owners before consumption spikes.',
+          callouts: {
+            logs: {
+              title: 'Logs ingestion mitigation',
+              caption: 'Reduce ingestion by 15% enabling exclusion filters and sampling.',
+              cta: 'Open sampling playbook',
+            },
+            apm: {
+              title: 'APM trace control',
+              caption: 'Coordinate with service owners to adjust span processors.',
+              cta: 'Review APM checklist',
+            },
+            infra: {
+              title: 'Infrastructure cleanup',
+              caption: 'Audit hosts and containers with zero metrics in last 24h.',
+              cta: 'View infra audit steps',
+            },
+          },
+          automationCards: {
+            filters: {
+              title: 'Log exclusion toggles',
+              items:
+                'Auto-enable when 80% commitment reached\nNotify #finops for confirmation\nRollback first day of next month',
+            },
+            slack: {
+              title: 'Slack escalations',
+              items:
+                'Send weekly summary to #platform-health\nPage FinOps when projected > 110%\nGenerate renewal brief 30 days before term',
+            },
+            mcp: {
+              title: 'MCP copilots',
+              items:
+                'Answer “where are we overspending?” in natural language\nDraft PRs to optimize APM sampling\nRecommend contract adjustments',
+            },
+          },
+          thresholds: {
+            title: 'Threshold overrides',
+            description:
+              'Customize alerting levels for each product to match business expectations.',
+            defaultLabel: 'Default threshold',
+            customLabel: 'Custom threshold',
+            ownerLabel: 'Owner',
+            editButton: 'Edit threshold',
+          },
+        },
+        metrics: {
+          logs: {
+            label: 'Logs ingested',
+            unit: 'GB',
+            action: 'Enable temporary exclusion filters',
+          },
+          customMetrics: {
+            label: 'Custom metrics',
+            unit: 'metrics',
+            action: 'Review tags & aggregation',
+          },
+          apmTraces: {
+            label: 'APM traces',
+            unit: 'traces',
+            action: 'Tune sampling & span filters',
+          },
+          apmHosts: {
+            label: 'APM Hosts',
+            unit: 'hosts',
+            action: 'Coordinate with service owners to tune APM coverage',
+          },
+          infraHosts: {
+            label: 'Infrastructure hosts',
+            unit: 'hosts',
+            action: 'Check unused agents',
+          },
+          containers: {
+            label: 'Containers monitored',
+            unit: 'containers',
+            action: 'Audit ephemeral workloads',
+          },
+          rumSessions: {
+            label: 'RUM sessions',
+            unit: 'sessions',
+            action: 'Coordinate with product analytics',
+          },
+          synthetics: {
+            label: 'Synthetics API tests',
+            unit: 'tests',
+            action: 'Archive unused monitors',
+          },
+          ciVisibility: {
+            label: 'CI visibility commits',
+            unit: 'commits',
+            action: 'Align with DevEx team',
+          },
+        },
+      },
+    },
   },
   'pt-BR': {
     // Portuguese translations will be added later
@@ -533,6 +1049,25 @@ export const translations = {
       signOut: 'Sair',
       createOrganization: 'Criar Organização',
       organizations: 'Organizações',
+      datadogSuite: 'Suite Datadog',
+      datadogObservability: 'Workspace de Observabilidade',
+      datadogAutomation: 'Laboratório de IA & Automação',
+      datadogIntegrations: 'Comunicações',
+      datadogFinops: 'FinOps & Previsões',
+      datadogApiCredentials: 'Credenciais de API',
+      costGuard: 'Guardião de Custos',
+      statusPages: 'Status Pages Personalizadas',
+      externalSynthetics: 'Testes Sintéticos Externos',
+      logFilters: 'Filtros de Exclusão de Logs',
+      businessObservability: 'Business Observability',
+      correlationStories: 'Histórias de Correlação',
+      observabilityMaturity: 'Maturidade de Observabilidade',
+      aiAssistant: 'Assistente de IA',
+      performanceRemediation: 'Remediação de Performance',
+      errorAutofix: 'Correção Automática de Erros',
+      costInsights: 'Insights de Custo',
+      communicationIntegrations: 'Integrações de Comunicação',
+      finopsForecast: 'Previsão FinOps',
     },
     roles: {
       owner: 'Proprietário',
@@ -701,6 +1236,38 @@ export const translations = {
       underDevelopment: 'Em Desenvolvimento',
       underDevelopmentDescription: 'Estamos trabalhando na implementação de recursos de faturamento',
       underDevelopmentMessage: 'Recursos de faturamento estão em desenvolvimento. Volte em breve.',
+    },
+    datadog: {
+      credentials: {
+        title: 'Credenciais Datadog',
+        subtitle: 'Informe a API Key e a Application Key da sua organização para liberar os fluxos Datadog dentro do Sunshine.',
+        alertTitle: 'Atenção',
+        alertBody: 'As chaves são armazenadas no navegador apenas para fins de demonstração. Em produção, utilize armazenamento seguro (Supabase com criptografia ou secret manager).',
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'pubxxxxxxxxxxxxxxxxxxxx',
+        appKeyLabel: 'Application Key',
+        appKeyPlaceholder: 'appxxxxxxxxxxxxxxxxxxxx',
+        existingSecretNote: 'Digite novamente as duas chaves para substituir os valores atuais.',
+        saveButton: 'Salvar credenciais',
+        saving: 'Salvando...',
+        success: 'Credenciais salvas localmente. Os módulos Datadog foram habilitados.',
+        error: 'API Key e Application Key são obrigatórias.',
+        removeButton: 'Remover credenciais',
+        removeDialogTitle: 'Remover credenciais armazenadas?',
+        removeDialogDescription: 'Isso remove as chaves Datadog salvas neste navegador para o tenant atual.',
+        removeConfirm: 'Sim, remover credenciais',
+        removed: 'Credenciais removidas deste dispositivo.',
+        statusTitle: 'Status',
+        statusConfigured: 'Configurado',
+        statusPending: 'Não configurado',
+        statusUpdated: 'Última atualização em {date}',
+        statusNever: 'Nunca configurado',
+        checklistTitle: 'Próximos passos',
+        checklistObservability: 'Explore as páginas do Workspace de Observabilidade com suas partes interessadas.',
+        checklistAutomation: 'Revise os fluxos do Laboratório de IA & Automação para habilitar MCP.',
+        checklistCommunications: 'Planeje automações de canais em Comunicações.',
+        checklistFinops: 'Valide premissas de previsão FinOps com o time financeiro.',
+      },
     },
     auditLog: {
       title: 'Log de Auditoria',
@@ -986,6 +1553,471 @@ export const translations = {
         codeSent: 'Código de verificação enviado com sucesso',
         invalidCode: 'Código de verificação inválido',
         error: 'Ocorreu um erro. Por favor, tente novamente.',
+      },
+    },
+    datadog: {
+      navigation: {
+        section: 'Suite Datadog',
+        setup: 'Configuração',
+        apiCredentials: 'Credenciais API',
+        observability: 'Observabilidade',
+        costGuard: 'Guardião de Custos',
+        statusPages: 'Status Pages Personalizadas',
+        synthetics: 'Sintéticos Externos',
+        logFilters: 'Filtros Automáticos de Logs',
+        businessObservability: 'Observabilidade de Negócio',
+        correlationStories: 'Histórias de Correlação',
+        observabilityMaturity: 'Maturidade de Observabilidade',
+        automation: 'Laboratório de Automação',
+        aiAssistant: 'Consultas em Linguagem Natural',
+        performanceRemediation: 'Remediação com Profiler',
+        errorAutofix: 'Correção Automática de Erros',
+        costInsights: 'Insights de Custo com IA',
+        integrations: 'Central de Comunicação',
+        communications: 'Integrações de Canais',
+        finops: 'FinOps',
+        finopsForecast: 'FinOps Preditivo',
+        costGuard: 'Cost Guard',
+        costGuardContract: 'Resumo do Contrato',
+        costGuardMetrics: 'Métricas e Projeções',
+        costGuardActions: 'Playbooks e Alertas',
+      },
+      shared: {
+        highlightsTitle: 'Destaques',
+        actionsTitle: 'Próximos Passos',
+        mockTitle: 'Visualização protótipo',
+        mockNotice: 'Dados simulados apenas para validação de UX.',
+        credentialsRequiredTitle: 'Credenciais Datadog necessárias',
+        credentialsRequiredBody:
+          'Adicione suas chaves API e Application na tela de configuração para liberar esta visão.',
+      },
+      apiCredentials: {
+        title: 'Credenciais Datadog',
+        subtitle: 'Conecte sua organização ao Datadog com chaves com escopo definido.',
+        description:
+          'As chaves ficam armazenadas no seu navegador por enquanto. Persistência em Supabase com criptografia chegará em breve.',
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'dd_api_key_xxx',
+        appKeyLabel: 'Application Key',
+        appKeyPlaceholder: 'dd_app_key_xxx',
+        saveCta: 'Salvar credenciais',
+        saving: 'Salvando...',
+        saved: 'Credenciais armazenadas localmente',
+        reset: 'Limpar formulário',
+        help: 'Use chaves com escopo para os produtos que deseja ativar. Faça rotações periódicas.',
+        notice:
+          'Após salvar, a navegação Datadog exibirá os módulos de Observabilidade, Automação e FinOps.',
+        notesLabel: 'Notas internas',
+        notesPlaceholder: 'Adicione escopo, política de rotação ou contatos responsáveis...',
+        lastUpdated: 'Última atualização: {timestamp}',
+        error: 'Não foi possível salvar as credenciais. Tente novamente.',
+      },
+      observability: {
+        costGuard: {
+          title: 'Guardião de Custos',
+          subtitle:
+            'Projete o uso do Datadog, identifique estouros e avise os times antes de entrar em pricing on-demand.',
+          highlights:
+            'Uso diário vs. baseline contratual\nProjeção de gasto no fechamento do mês\nServiços que mais geram crescimento inesperado',
+          actions:
+            'Cadastrar limites contratuais por produto\nConectar a API de medição de uso para dados em tempo real\nNotificar FinOps antes de romper os thresholds',
+          metricsTitle: 'Resumo da projeção',
+          metrics: {
+            dailyBurnLabel: 'Consumo diário vs contrato',
+            dailyBurnValue: '118%',
+            dailyBurnDetail: 'US$ 4.820 / US$ 4.080',
+            projectedLabel: 'Gasto projetado no fim do mês',
+            projectedValue: 'US$ 42K',
+            projectedDetail: '+12% vs plano',
+            watchlistLabel: 'Serviços em observação',
+            watchlistValue: '5',
+            watchlistDetail: 'Picos de ingestão em ingest-labs*',
+          },
+        },
+        statusPages: {
+          title: 'Status Pages Personalizadas',
+          subtitle:
+            'Monte páginas de status com a sua marca—internas ou públicas—sem habilitar Incident Management.',
+          highlights:
+            'Biblioteca de templates com widgets de SLA/SLO\nSegmentação por público (interno, clientes, executivos)\nLinha do tempo automática de incidentes via API',
+          actions:
+            'Definir quais monitores alimentam cada página\nConectar ao DNS da empresa ou landing pages\nPlanejar mensagens multilíngues de status',
+          calloutTitle: 'Checklist de wireframe',
+          calloutBody:
+            'Documente os blocos principais, o layout da linha do tempo e a estratégia de tradução antes de envolver design.',
+          calloutDetails:
+            'Hero: resumo de uptime + impacto\nTimeline: incidentes, manutenção, anotações\nAlternância de público: cópia interna vs pública',
+        },
+        synthetics: {
+          title: 'Sintéticos Externos',
+          subtitle:
+            'Agregue checagens sintéticas executadas fora do Datadog e publique os resultados via API.',
+          highlights:
+            'Matriz de heartbeat com tendência de sucesso/falha\nHistogramas de latência por região\nLinks de drill-down para logs brutos das execuções',
+          actions:
+            'Importar definições sintéticas do seu repositório de scripts\nAgendar sincronizações MCP para os testes\nConfigurar roteamento de alertas por severidade',
+          calloutTitle: 'Fluxo de execução',
+          calloutBody:
+            'Liste quais runners executam cada teste, como os resultados são agrupados e com que frequência o MCP reconcilia metadados.',
+          calloutDetails:
+            'Agendadores: cron + jobs MCP\nRunners: GitHub Actions, agentes próprios\nPayload: schema JSON por execução',
+        },
+        logFilters: {
+          title: 'Filtros Automáticos de Logs',
+          subtitle:
+            'Proteja as cotas habilitando exclusões automáticas quando a ingestão atingir 100% da franquia.',
+          highlights:
+            'Medidores em tempo real para ingestão, indexação e segurança\nSugestões de filtros automáticos por serviço\nScheduler de rollback para o próximo ciclo de faturamento',
+          actions:
+            'Marcar serviços que suportam amostragem de logs\nConfigurar a cadência de reset mensal\nAlinhar com o time de segurança antes de habilitar exclusões',
+          calloutTitle: 'Rascunho de política',
+          calloutBody:
+            'Registre o fluxo de aprovação, gatilhos de rollback e templates de comunicação antes de ativar exclusões automáticas.',
+          calloutDetails:
+            'Gatilho: 100% da cota de ingestão/índice/segurança\nAção: aplicar filtros de exclusão por tag\nRollback: primeiro dia do próximo ciclo',
+        },
+        businessObservability: {
+          title: 'Observabilidade de Negócio',
+          subtitle:
+            'Misture métricas de conversão, receita e churn com sinais de plataforma nos dashboards do Datadog.',
+          highlights:
+            'Painel unificado com métricas técnicas + de negócio\nSugestões automáticas de correlação quando KPIs degradam\nExportações prontas para stakeholders com blocos de contexto',
+          actions:
+            'Definir a fonte oficial para eventos de negócio\nDocumentar o mapeamento KPI ↔ serviço\nPreparar regras de governança para publicação de dashboards',
+          calloutTitle: 'Contratos de dados',
+          calloutBody:
+            'Liste donos das métricas, cadência de atualização e passos de validação para manter dashboards confiáveis.',
+          calloutDetails:
+            'Sistemas fonte mapeados para KPIs\nResponsável e backup por métrica\nRegras de alerta quando houver atraso de atualização',
+        },
+        correlationStories: {
+          title: 'Histórias de Correlação',
+          subtitle:
+            'Conte histórias de causa e efeito ligando incidentes técnicos ao impacto no cliente ou financeiro.',
+          highlights:
+            'Cartões cronológicos combinando traces, logs e queda de receita\nTemplates para pós-mortem e reviews semanais\nHeatmap de impacto que destaca os times mais afetados',
+          actions:
+            'Coletar histórias recentes de incidentes\nDesenhar o modelo de atribuição entre métricas\nCriar fluxo de aprovação para publicar histórias',
+          calloutTitle: 'Construtor de histórias',
+          calloutBody:
+            'Desenhe as seções (contexto, sinais, impacto, ações) e defina quem curte cada bloco.',
+          calloutDetails:
+            'Contexto: o que ocorreu e quando\nSinais: dados técnicos a destacar\nImpacto: cliente, receita, conformidade\nAções: remediação + follow-ups',
+        },
+        observabilityMaturity: {
+          title: 'Mapa de Maturidade de Observabilidade',
+          subtitle:
+            'Pontue cobertura em logs, métricas, traces, RUM, segurança e telemetria de negócio.',
+          highlights:
+            'Radar de maturidade por domínio\nAnálise de gaps ordenada por impacto vs. esforço\nRecomendações para o roadmap do próximo trimestre',
+          actions:
+            'Definir a rubrica de pontuação para cada pilar de observabilidade\nEntrevistar donos de domínio para validar notas\nAssociar o heatmap ao backlog de enablement',
+          calloutTitle: 'Guia de pontuação',
+          calloutBody:
+            'Compartilhe a fórmula, os thresholds e as evidências necessárias para que os domínios se autoavaliem com consistência.',
+          calloutDetails:
+            'Níveis de score de 1 a 5 com descrição\nExemplos de evidências por pilar\nCadência de review e stakeholders',
+        },
+      },
+      automation: {
+        aiAssistant: {
+          title: 'Consultas em Linguagem Natural',
+          subtitle:
+            'Pergunte ao Datadog sobre métricas, logs e traces em português ou inglês — com MCP.',
+          highlights:
+            'Prompts seguros baseados na sintaxe do Datadog\nSugestões de follow-up e threads salvas\nExportação para timelines de incidentes ou updates no Slack',
+          actions:
+            'Listar os datasets que o MCP pode acessar\nDefinir regras de mascaramento de dados sensíveis\nPlanejar auditoria do histórico de perguntas/respostas',
+          calloutTitle: 'Roteiro do assistente',
+          calloutBody:
+            'Desenhe prompts base, respostas fallback e regras de handoff antes de conectar ao MCP.',
+          calloutDetails:
+            'Definir intents suportados (métricas, logs, traces)\nMapear intent → builder de queries\nConfigurar formato e tom das respostas\nRegistrar prompts/respostas para auditoria',
+        },
+        performanceRemediation: {
+          title: 'Remediação com Profiler',
+          subtitle:
+            'Revise insights do Profiler e gere pull requests no GitHub com sugestões de otimização.',
+          highlights:
+            'Explorador de hotspots de CPU e memória\nComparação entre release baseline e regressões\nCompositor de PR com trechos de código e plano de rollout',
+          actions:
+            'Conectar o Datadog Profiler aos seus serviços\nMapear repositórios e times responsáveis pelos PRs\nDefinir política de aprovação para PRs gerados por IA',
+          calloutTitle: 'Pipeline de remediação',
+          calloutBody:
+            'Desenhe como findings do profiler viram issues ou PRs, incluindo revisores e checagens de rollout.',
+          calloutDetails:
+            'Selecionar serviços + repositórios elegíveis\nDefinir seções do template de PR\nEstabelecer thresholds de regressão\nPlanejar testes de performance antes do merge',
+        },
+        errorAutofix: {
+          title: 'Correção Automática de Erros',
+          subtitle:
+            'Detecte estouros de erros ou stack traces e proponha PRs de correção automaticamente.',
+          highlights:
+            'Dashboard em tempo real de clusters de erro\nIndícios de causa raiz ligados a deploys recentes\nChecklist de segurança antes de abrir o PR',
+          actions:
+            'Habilitar rastreamento de erros baseado em logs nos serviços alvo\nDefinir playbooks de rollback e verificação\nEstabelecer quando envolver humanos antes do merge',
+          calloutTitle: 'Trilhos de segurança',
+          calloutBody:
+            'Defina quando o MCP pode abrir PR automaticamente vs. solicitar revisão humana.',
+          calloutDetails:
+            'Severidades permitidas para automação\nResponsáveis notificados por serviço\nPassos de verificação pós-deploy\nGatilhos de rollback e escalonamento',
+        },
+        costInsights: {
+          title: 'Insights de Custo com IA',
+          subtitle:
+            'Deixe o MCP analisar padrões de uso e sugerir ajustes de contrato ou configuração para reduzir gasto.',
+          highlights:
+            'Comparações de custo por serviço e sinal\nPolíticas recomendadas de amostragem ou retenção\nThreads de insight com responsáveis definidos',
+          actions:
+            'Etiquetar recursos do Datadog com metadados de produto e ambiente\nAssociar thresholds de custo por time\nAgendar reviews recorrentes de insights com FinOps',
+          calloutTitle: 'Playbook de insights',
+          calloutBody:
+            'Defina como recomendações são triadas, atribuídas e validadas com FinOps.',
+          calloutDetails:
+            'Categorias de insight: ingestão, retenção, licenciamento\nRegras de auto-atribuição de responsáveis\nChecklist de validação por categoria\nFeedback para evoluir prompts do MCP',
+        },
+      },
+      integrations: {
+        communications: {
+          title: 'Central de Comunicação',
+          subtitle:
+            'Leve alertas e insights do Datadog para ferramentas como Slack ou Teams.',
+          highlights:
+            'Roteamento por canal (FinOps, plataforma, produto)\nSlash commands para consultas de status\nSincronização de acknowledge de volta para o Datadog',
+          actions:
+            'Documentar canais oficiais e responsáveis\nConfigurar segredos de webhook por workspace\nPilotar playbooks para incidentes e updates de FinOps',
+          calloutTitle: 'Blueprint de canais',
+          calloutBody:
+            'Detalhe quais insights chegam em qual canal e como os times pedem novas assinaturas.',
+          calloutDetails:
+            'Taxonomia de canais e responsáveis\nComandos permitidos e permissões\nEscalonamento por tópico\nPolítica de rotação de segredos',
+        },
+      },
+      finops: {
+        forecast: {
+          title: 'FinOps Preditivo',
+          subtitle:
+            'Combine histórico de uso com tendências para antecipar quando o budget será ultrapassado.',
+          highlights:
+            'Gráficos de burn-rate com intervalo de confiança\nSimulador de alertas para thresholds 80/90/100%\nCenários “what-if” para crescimento ou otimizações',
+          actions:
+            'Importar gasto histórico via API de billing do Datadog\nAlinhar a cadência de forecast com o reporte financeiro\nDefinir caminhos de escalonamento quando a projeção exceder 100%',
+          calloutTitle: 'Playbook de forecast',
+          calloutBody:
+            'Decida quem conduz as revisões, quando alertas disparam e como os planos de mitigação serão acompanhados.',
+          calloutDetails:
+            'Cadência de review e participantes\nThresholds de alerta e destinatários\nTemplate de plano de mitigação\nKPIs monitorados após mitigação',
+        },
+      },
+      costGuard: {
+        heroTitle: 'Visão geral do Cost Guard',
+        heroSubtitle:
+          'Acompanhe o compromisso firmado com o Datadog, monitore tendências de consumo e ative ações FinOps antes dos estouros.',
+        heroPrimaryCta: 'Criar playbook de mitigação',
+        heroSecondaryCta: 'Ajustar thresholds',
+        summary: {
+          contractedSpend: 'Valor comprometido',
+          projectedSpend: 'Projeção fim do mês',
+          utilization: 'Utilização média',
+          runway: 'Dias até 100%',
+          overageRisk: 'Risco de estouro',
+          statusOk: 'Em conformidade',
+          statusWatch: 'Atenção',
+          statusCritical: 'Crítico',
+        },
+        contractCard: {
+          title: 'Contrato ativo',
+          description:
+            'Acompanhe os compromissos firmados com o Datadog por produto. Ajuste thresholds para personalizar alertas antecipados.',
+          planLabel: 'Plano',
+          cycleLabel: 'Ciclo de cobrança',
+          thresholdLabel: 'Thresholds padrão',
+          editButton: 'Editar contrato',
+        },
+        contractEdit: {
+          title: 'Editar contrato',
+          description:
+            'Atualize compromissos, thresholds e responsáveis. As mudanças impactam projeções e alertas imediatamente.',
+          sections: {
+            overview: 'Resumo do contrato',
+            products: 'Compromissos por produto',
+            thresholds: 'Overrides de threshold',
+          },
+          fields: {
+            contractName: 'Plataforma',
+            contractCycle: 'Ciclo de cobrança',
+            startDate: 'Data de início',
+            endDate: 'Data de término',
+            productLabel: 'Produto',
+            unitLabel: 'Unidade',
+            committedLabel: 'Quantidade comprometida',
+            thresholdLabel: 'Threshold customizado (opcional)',
+          },
+          actions: {
+            addProduct: 'Adicionar produto',
+            reset: 'Descartar alterações',
+            save: 'Salvar alterações do contrato',
+          },
+        },
+        metricsSection: {
+          title: 'Uso por produto',
+          description:
+            'Compare sinais técnicos com os limites contratuais. Thresholds definem quando automações ou notificações devem disparar.',
+          usageLabel: 'Uso',
+          limitLabel: 'Limite',
+          thresholdLabel: 'Threshold',
+          projectionLabel: 'Projeção',
+          trend7d: 'Tendência (7 dias)',
+        },
+        metricsPage: {
+          filters: {
+            all: 'Todas as métricas',
+            logs: 'Logs e Métricas',
+            apm: 'APM e Tracing',
+            infra: 'Infraestrutura',
+            experience: 'Experiência Digital',
+          },
+        },
+        table: {
+          title: 'Detalhamento completo',
+          metricColumn: 'Métrica',
+          unitColumn: 'Unidade',
+          usageColumn: 'Uso',
+          limitColumn: 'Comprometido',
+          thresholdColumn: 'Threshold',
+          projectedColumn: 'Projetado',
+          statusColumn: 'Status',
+          actionsColumn: 'Próxima ação',
+          actionTuneSampling: 'Revisar política de sampling',
+          actionEnableFilters: 'Ativar filtros de exclusão',
+          actionReviewContract: 'Revisar contrato',
+          statusOk: 'OK',
+          statusWatch: 'Atenção',
+          statusCritical: 'Crítico',
+        },
+        timeline: {
+          title: 'Próximas etapas',
+          description:
+            'Antecipe os próximos movimentos e alinhe FinOps, plataforma e compras.',
+          items: {
+            watch: {
+              title: 'Ingestão de logs atingindo 80%',
+              caption: 'Acionar playbook de sampling e avisar FinOps',
+            },
+            review: {
+              title: 'Custom metrics com tendência +15%',
+              caption: 'Agendar review com champions de observabilidade',
+            },
+            renew: {
+              title: 'Janela de renovação de contrato',
+              caption: 'Iniciar checklist de renegociação com compras',
+            },
+          },
+        },
+        actionsPage: {
+          title: 'Playbooks e Alertas',
+          subtitle:
+            'Transforme sinais antecipados em ações direcionadas. Configure thresholds, automações e comunicação por produto.',
+          playbookTitle: 'Biblioteca de playbooks',
+          playbookDescription:
+            'Procedimentos padrão para os cenários de estouro mais comuns.',
+          automationTitle: 'Automações e integrações',
+          automationDescription:
+            'Conecte sinais do Cost Guard com filtros, copilotos MCP e canais de colaboração.',
+          thresholdsTitle: 'Overrides de threshold',
+          thresholdsDescription:
+            'Ajuste os níveis de alerta por produto e defina responsáveis antes de os consumos dispararem.',
+          callouts: {
+            logs: {
+              title: 'Mitigação de ingestão de logs',
+              caption: 'Reduza a ingestão em 15% ativando filtros de exclusão e sampling.',
+              cta: 'Abrir playbook de sampling',
+            },
+            apm: {
+              title: 'Controle de APM traces',
+              caption: 'Coordene com os times para ajustar span processors.',
+              cta: 'Revisar checklist de APM',
+            },
+            infra: {
+              title: 'Limpeza de infraestrutura',
+              caption: 'Audite hosts e containers sem métricas nas últimas 24h.',
+              cta: 'Ver passos de auditoria',
+            },
+          },
+          automationCards: {
+            filters: {
+              title: 'Toggles de exclusão de logs',
+              items:
+                'Ativar automaticamente ao atingir 80% do compromisso\nNotificar #finops para confirmação\nRollback no primeiro dia do próximo mês',
+            },
+            slack: {
+              title: 'Escalonamentos no Slack',
+              items:
+                'Enviar resumo semanal para #platform-health\nAcionar FinOps quando projeção > 110%\nGerar briefing de renovação 30 dias antes',
+            },
+            mcp: {
+              title: 'Copilotos MCP',
+              items:
+                'Responder “onde estamos gastando demais?” em linguagem natural\nSugerir PRs para otimizar sampling de APM\nRecomendar ajustes contratuais',
+            },
+          },
+          thresholds: {
+            title: 'Overrides de threshold',
+            description:
+              'Personalize os níveis de alerta de cada produto para refletir a expectativa do negócio.',
+            defaultLabel: 'Threshold padrão',
+            customLabel: 'Threshold customizado',
+            ownerLabel: 'Responsável',
+            editButton: 'Editar threshold',
+          },
+        },
+        metrics: {
+          logs: {
+            label: 'Logs ingeridos',
+            unit: 'GB',
+            action: 'Ativar filtros de exclusão temporários',
+          },
+          customMetrics: {
+            label: 'Custom metrics',
+            unit: 'métricas',
+            action: 'Revisar tags e agregações',
+          },
+          apmTraces: {
+            label: 'APM traces',
+            unit: 'traces',
+            action: 'Ajustar sampling e filtros de spans',
+          },
+          apmHosts: {
+            label: 'Hosts APM',
+            unit: 'hosts',
+            action: 'Coordenar com os times para ajustar cobertura de APM',
+          },
+          infraHosts: {
+            label: 'Hosts monitorados',
+            unit: 'hosts',
+            action: 'Verificar agentes ociosos',
+          },
+          containers: {
+            label: 'Containers monitorados',
+            unit: 'containers',
+            action: 'Auditar workloads efêmeros',
+          },
+          rumSessions: {
+            label: 'Sessões RUM',
+            unit: 'sessões',
+            action: 'Alinhar com time de produto',
+          },
+          synthetics: {
+            label: 'Testes sintéticos API',
+            unit: 'testes',
+            action: 'Arquivar monitores ociosos',
+          },
+          ciVisibility: {
+            label: 'Commits CI visibility',
+            unit: 'commits',
+            action: 'Ajustar com time de DevEx',
+          },
+        },
       },
     },
   },
