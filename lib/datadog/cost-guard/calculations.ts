@@ -188,8 +188,27 @@ export function extractTrendFromTimeseries(
 
   let dataPoints: Array<{ timestamp: string; value: number }> = [];
 
-  // Handle array of timeseries objects (from /usage/{product})
-  if (Array.isArray(timeseries)) {
+  // Handle v2 API format: { data: [{ attributes: { timestamp, measurements: [...] } }] }
+  if (timeseries.data && Array.isArray(timeseries.data)) {
+    for (const hourlyUsage of timeseries.data) {
+      const timestamp = hourlyUsage.attributes?.timestamp;
+      if (timestamp && hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        // Sum all measurements for this hour
+        let hourTotal = 0;
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          if (typeof measurement.value === 'number') {
+            hourTotal += measurement.value;
+          }
+        }
+        if (hourTotal > 0) {
+          dataPoints.push({ timestamp, value: hourTotal });
+        }
+      }
+    }
+  }
+
+  // Handle array of timeseries objects (from legacy /usage/{product})
+  if (Array.isArray(timeseries) && !timeseries.data) {
     for (const entry of timeseries) {
       if (typeof entry === 'object') {
         for (const [timestamp, value] of Object.entries(entry)) {
@@ -201,7 +220,7 @@ export function extractTrendFromTimeseries(
     }
   }
 
-  // Handle timeseries format from /usage/timeseries
+  // Handle timeseries format from legacy /usage/timeseries
   if (timeseries.values && Array.isArray(timeseries.values)) {
     const timestamps = timeseries.timestamps || [];
     timeseries.values.forEach((value: number, index: number) => {
@@ -209,6 +228,21 @@ export function extractTrendFromTimeseries(
         dataPoints.push({ timestamp: timestamps[index], value });
       }
     });
+  }
+
+  // Handle legacy usage array format
+  if (timeseries.usage && Array.isArray(timeseries.usage)) {
+    for (const entry of timeseries.usage) {
+      if (entry.timeseries && Array.isArray(entry.timeseries)) {
+        for (const ts of entry.timeseries) {
+          for (const [timestamp, value] of Object.entries(ts)) {
+            if (typeof value === 'number') {
+              dataPoints.push({ timestamp, value });
+            }
+          }
+        }
+      }
+    }
   }
 
   if (dataPoints.length === 0) {
@@ -257,7 +291,7 @@ export function extractTrendFromTimeseries(
 
 /**
  * Calculate total usage from Datadog usage response
- * Handles both /usage/{product} and /usage/timeseries formats
+ * Handles v2 API format (/api/v2/usage/hourly_usage) and legacy v1 formats
  */
 export function calculateTotalUsage(
   usageResponse: any,
@@ -268,7 +302,21 @@ export function calculateTotalUsage(
 
   let total = 0;
 
-  // Handle /usage/{product} format
+  // Handle v2 API format: { data: [{ attributes: { measurements: [...] } }] }
+  if (usageResponse.data && Array.isArray(usageResponse.data)) {
+    for (const hourlyUsage of usageResponse.data) {
+      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          // Measurement has usage_type and value
+          if (typeof measurement.value === 'number') {
+            total += measurement.value;
+          }
+        }
+      }
+    }
+  }
+
+  // Handle legacy v1 /usage/{product} format
   if (usageResponse.usage && Array.isArray(usageResponse.usage)) {
     for (const entry of usageResponse.usage) {
       if (entry.timeseries && Array.isArray(entry.timeseries)) {
@@ -283,7 +331,7 @@ export function calculateTotalUsage(
     }
   }
 
-  // Handle /usage/timeseries format
+  // Handle legacy /usage/timeseries format
   if (usageResponse.timeseries && Array.isArray(usageResponse.timeseries)) {
     for (const entry of usageResponse.timeseries) {
       if (entry.values && Array.isArray(entry.values)) {
@@ -302,5 +350,19 @@ export function calculateTotalUsage(
   }
 
   return Math.round(total);
+}
+
+/**
+ * Convert bytes to GB
+ */
+export function bytesToGB(bytes: number): number {
+  return bytes / (1024 * 1024 * 1024);
+}
+
+/**
+ * Convert GB to bytes
+ */
+export function gbToBytes(gb: number): number {
+  return gb * 1024 * 1024 * 1024;
 }
 

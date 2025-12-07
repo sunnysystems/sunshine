@@ -149,9 +149,20 @@ export default function EditContractPage() {
                 familyData = productFamilies[row.id];
               }
 
+              // Only show threshold if it's a valid positive number
+              let thresholdValue = '';
+              if (familyData?.threshold !== undefined && familyData?.threshold !== null) {
+                const thresholdNum = typeof familyData.threshold === 'number' 
+                  ? familyData.threshold 
+                  : Number.parseFloat(String(familyData.threshold));
+                if (!Number.isNaN(thresholdNum) && thresholdNum > 0) {
+                  thresholdValue = thresholdNum.toString();
+                }
+              }
+
               initialProducts[row.id] = {
                 committed: familyData?.committed?.toString() || row.committed,
-                threshold: familyData?.threshold?.toString() || row.threshold || '',
+                threshold: thresholdValue,
               };
             });
 
@@ -211,11 +222,27 @@ export default function EditContractPage() {
       productRows.forEach((row) => {
         const productData = products[row.id] || { committed: row.committed, threshold: row.threshold };
         const committed = Number.parseFloat(productData.committed) || 0;
-        const threshold = productData.threshold ? Number.parseFloat(productData.threshold) : undefined;
+        
+        // Parse threshold: treat empty string or '0' as undefined (no custom threshold)
+        let threshold: number | undefined = undefined;
+        const thresholdValue = productData.threshold;
+        
+        // Check if threshold exists and is not empty
+        if (thresholdValue !== undefined && thresholdValue !== null && thresholdValue !== '') {
+          const thresholdStr = String(thresholdValue).trim();
+          if (thresholdStr !== '') {
+            const parsed = Number.parseFloat(thresholdStr);
+            if (!Number.isNaN(parsed) && parsed > 0) {
+              threshold = parsed;
+            }
+          }
+        }
 
         // Map to API format using product family name
         const productFamilyName = productFamilyMap[row.id] || row.id;
         productFamilies[productFamilyName] = { committed };
+        
+        // Only include threshold if it's a valid positive number
         if (threshold !== undefined && threshold > 0) {
           productFamilies[productFamilyName].threshold = threshold;
           thresholds[productFamilyName] = threshold;
@@ -280,13 +307,16 @@ export default function EditContractPage() {
   };
 
   const updateProduct = (productId: string, field: 'committed' | 'threshold', value: string) => {
-    setProducts((prev) => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        [field]: value,
-      },
-    }));
+    setProducts((prev) => {
+      const current = prev[productId] || { committed: '', threshold: '' };
+      return {
+        ...prev,
+        [productId]: {
+          ...current,
+          [field]: value,
+        },
+      };
+    });
   };
 
   if (loading) {
@@ -439,7 +469,7 @@ export default function EditContractPage() {
                     {t('datadog.costGuard.contractEdit.fields.thresholdLabel')}
                   </Label>
                   <Input
-                    value={products[row.id]?.threshold || row.threshold}
+                    value={products[row.id]?.threshold ?? ''}
                     onChange={(e) => updateProduct(row.id, 'threshold', e.target.value)}
                     type="number"
                     min="0"
