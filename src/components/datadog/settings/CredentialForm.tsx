@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { AlertCircle, Trash2 } from 'lucide-react';
+import { AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -50,17 +50,23 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [notes, setNotes] = useState('');
   const [isRemoving, setIsRemoving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadStored() {
+      setIsLoading(true);
       try {
         const stored = await loadDatadogCredentials(tenant);
         if (!cancelled && stored) {
           setApiKey(stored.apiKey);
           setAppKey(stored.appKey);
           setUpdatedAt(stored.updatedAt);
+        } else if (!cancelled) {
+          setApiKey('');
+          setAppKey('');
+          setUpdatedAt(null);
         }
       } catch {
         // If credentials don't exist or user doesn't have access, leave empty
@@ -68,6 +74,10 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
           setApiKey('');
           setAppKey('');
           setUpdatedAt(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
         }
       }
     }
@@ -145,7 +155,17 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
         </p>
       </CardHeader>
       <CardContent>
-        <form className="space-y-6" onSubmit={onSubmit}>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">
+                {t('common.loading') || 'Loading credentials...'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <form className="space-y-6" onSubmit={onSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="apiKey">
@@ -229,8 +249,8 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
                     <AlertDialogDescription>
                       {t('datadog.credentials.removeDialogDescription') === 'datadog.credentials.removeDialogDescription'
                         ? (language === 'pt-BR' 
-                          ? 'Isso remove as chaves Datadog do Supabase Vault para esta organização.'
-                          : 'This removes the Datadog API and application keys from Supabase Vault for this organization.')
+                          ? 'Isso remove as chaves Datadog para esta organização. Esta ação não pode ser desfeita.'
+                          : 'This removes the Datadog API and application keys for this organization. This action cannot be undone.')
                         : t('datadog.credentials.removeDialogDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
@@ -288,6 +308,7 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
             ) : null}
           </div>
         </form>
+        )}
       </CardContent>
     </Card>
   );

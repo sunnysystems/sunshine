@@ -249,8 +249,8 @@ export function DatadogCredentialsForm({
                     <AlertDialogDescription>
                       {t('datadog.credentials.removeDialogDescription') === 'datadog.credentials.removeDialogDescription'
                         ? (language === 'pt-BR'
-                          ? 'Isso remove as chaves Datadog do Supabase Vault para esta organização.'
-                          : 'This removes the Datadog API and application keys from Supabase Vault for this organization.')
+                          ? 'Isso remove as chaves Datadog para esta organização. Esta ação não pode ser desfeita.'
+                          : 'This removes the Datadog API and application keys for this organization. This action cannot be undone.')
                         : t('datadog.credentials.removeDialogDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>

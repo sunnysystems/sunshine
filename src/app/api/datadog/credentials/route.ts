@@ -187,9 +187,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Retrieve credentials from vault
-    const apiKey = await getCredentialFromVault(org.id, 'api');
-    const appKey = await getCredentialFromVault(org.id, 'app');
+    // Retrieve credentials from vault (in parallel for better performance)
+    const [apiKey, appKey] = await Promise.all([
+      getCredentialFromVault(org.id, 'api'),
+      getCredentialFromVault(org.id, 'app'),
+    ]);
 
     if (!apiKey || !appKey) {
       return NextResponse.json(
@@ -268,9 +270,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Delete credentials from vault
-    await deleteCredentialFromVault(org.id, 'api');
-    await deleteCredentialFromVault(org.id, 'app');
+    // Delete credentials from vault (in parallel for better performance)
+    await Promise.all([
+      deleteCredentialFromVault(org.id, 'api'),
+      deleteCredentialFromVault(org.id, 'app'),
+    ]);
 
     // Delete metadata record if it exists
     try {
