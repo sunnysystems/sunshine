@@ -1,9 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { usePathname } from 'next/navigation';
 
 import { MetricUsageCard } from '@/components/datadog/cost-guard/MetricUsageCard';
 import { MetricUsageTable, type MetricTableRow } from '@/components/datadog/cost-guard/MetricUsageTable';
+import { ErrorState } from '@/components/datadog/cost-guard/ErrorState';
+import { MetricsLoading } from '@/components/datadog/cost-guard/LoadingState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -35,7 +39,18 @@ interface MetricConfig {
 
 export default function CostGuardMetricsPage() {
   const { t } = useTranslation();
+  const pathname = usePathname();
   const [activeCategory, setActiveCategory] = useState<MetricCategory>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [metricsData, setMetricsData] = useState<any[]>([]);
+
+  // Extract tenant from pathname
+  const tenant = useMemo(() => {
+    const segments = pathname?.split('/') ?? [];
+    return segments[1] || '';
+  }, [pathname]);
+
   const categoryFilters: { id: MetricCategory; label: string }[] = useMemo(
     () =>
       [
@@ -51,91 +66,51 @@ export default function CostGuardMetricsPage() {
     [t],
   );
 
-  const metricConfigs: MetricConfig[] = useMemo(
-    () => [
-      {
-        key: 'logsIngested',
-        usage: 780,
-        committed: 1000,
-        threshold: 900,
-        projected: 1120,
-        trend: [32, 45, 56, 64, 70, 78, 82],
-        status: 'critical',
-        category: 'logs',
-      },
-      {
-        key: 'customMetrics',
-        usage: 410,
-        committed: 500,
-        threshold: 450,
-        projected: 520,
-        trend: [44, 46, 48, 52, 54, 58, 61],
-        status: 'watch',
-        category: 'logs',
-      },
-      {
-        key: 'apmTraces',
-        usage: 12_000_000,
-        committed: 20_000_000,
-        threshold: 18_000_000,
-        projected: 16_200_000,
-        trend: [38, 42, 40, 39, 41, 43, 44],
-        status: 'ok',
-        category: 'apm',
-      },
-      {
-        key: 'infraHosts',
-        usage: 46,
-        committed: 50,
-        threshold: 48,
-        projected: 49,
-        trend: [60, 62, 63, 65, 66, 68, 70],
-        status: 'watch',
-        category: 'infra',
-      },
-      {
-        key: 'containers',
-        usage: 88,
-        committed: 100,
-        threshold: 95,
-        projected: 90,
-        trend: [58, 60, 59, 61, 62, 63, 64],
-        status: 'ok',
-        category: 'infra',
-      },
-      {
-        key: 'rumSessions',
-        usage: 760_000,
-        committed: 1_000_000,
-        threshold: 900_000,
-        projected: 1_050_000,
-        trend: [70, 72, 74, 77, 80, 84, 88],
-        status: 'watch',
-        category: 'experience',
-      },
-      {
-        key: 'synthetics',
-        usage: 28_000,
-        committed: 100_000,
-        threshold: 80_000,
-        projected: 40_000,
-        trend: [15, 18, 17, 20, 19, 18, 16],
-        status: 'ok',
-        category: 'experience',
-      },
-      {
-        key: 'ciVisibility',
-        usage: 62_000,
-        committed: 100_000,
-        threshold: null,
-        projected: 96_000,
-        trend: [35, 36, 38, 40, 42, 45, 48],
-        status: 'watch',
-        category: 'logs',
-      },
-    ],
-    [],
-  );
+  const fetchData = useCallback(async () => {
+    if (!tenant) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(
+        `/api/datadog/cost-guard/metrics?tenant=${encodeURIComponent(tenant)}`,
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch metrics data');
+      }
+
+      const data = await response.json();
+      setMetricsData(data.metrics || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const metricConfigs: MetricConfig[] = useMemo(() => {
+    if (metricsData.length === 0) {
+      return [];
+    }
+
+    // Map API response to MetricConfig format
+    return metricsData.map((metric) => ({
+      key: metric.key as keyof typeof metricLabels,
+      usage: metric.usage || 0,
+      committed: metric.committed || 1000,
+      threshold: metric.threshold ?? null,
+      projected: metric.projected || metric.usage || 0,
+      trend: metric.trend || [],
+      status: metric.status || 'ok',
+      category: metric.category || 'logs',
+    }));
+  }, [metricsData]);
 
   const filteredMetrics =
     activeCategory === 'all'
@@ -169,6 +144,41 @@ export default function CostGuardMetricsPage() {
       }),
     [filteredMetrics, t],
   );
+
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('datadog.costGuard.metricsSection.title')}
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            {t('datadog.costGuard.metricsSection.description')}
+          </p>
+        </header>
+        <MetricsLoading />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('datadog.costGuard.metricsSection.title')}
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            {t('datadog.costGuard.metricsSection.description')}
+          </p>
+        </header>
+        <ErrorState
+          message={error}
+          onRetry={fetchData}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

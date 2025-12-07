@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 
+import { Loader2 } from 'lucide-react';
+
 import { useTenant } from '@/components/tenant/TenantProvider';
 import {
   Card,
@@ -19,8 +21,17 @@ interface DatadogCredentialGateProps {
 
 export function DatadogCredentialGate({ children }: DatadogCredentialGateProps) {
   const { tenant } = useTenant();
-  const { hasCredentials } = useDatadogSuiteAvailability(tenant);
+  const { hasCredentials, isLoading } = useDatadogSuiteAvailability(tenant);
   const { t } = useTranslation();
+
+  // Show spinner while loading
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!hasCredentials) {
     return (
