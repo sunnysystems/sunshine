@@ -1,12 +1,13 @@
 import { redirect } from 'next/navigation';
 
 interface PageProps {
-  params: {
+  params: Promise<{
     tenant: string;
-  };
+  }>;
 }
 
-export default function LegacyCostGuardPage({ params }: PageProps) {
-  redirect(`/${params.tenant}/datadog/cost-guard/contract`);
+export default async function LegacyCostGuardPage({ params }: PageProps) {
+  const { tenant } = await params;
+  redirect(`/${tenant}/datadog/cost-guard/contract`);
 }
 
