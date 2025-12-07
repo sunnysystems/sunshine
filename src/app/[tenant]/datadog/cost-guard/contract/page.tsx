@@ -34,6 +34,8 @@ export default function CostGuardContractPage() {
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitError, setRateLimitError] = useState(false);
+  const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [contractData, setContractData] = useState<ContractData | null>(null);
 
   // Extract tenant from pathname
@@ -48,14 +50,31 @@ export default function CostGuardContractPage() {
     try {
       setLoading(true);
       setError(null);
+      setRateLimitError(false);
+      setRetryAfter(undefined);
 
       const [contractRes, summaryRes] = await Promise.all([
         fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`),
         fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`),
       ]);
 
+      // Check for rate limit errors
+      if (contractRes.status === 429 || summaryRes.status === 429) {
+        const errorResponse = contractRes.status === 429 ? contractRes : summaryRes;
+        const errorData = await errorResponse.json().catch(() => ({
+          message: 'Rate limit exceeded',
+          retryAfter: 60,
+        }));
+        setRateLimitError(true);
+        setRetryAfter(errorData.retryAfter || 60);
+        setError(errorData.message || 'Rate limit exceeded');
+        setLoading(false);
+        return;
+      }
+
       if (!contractRes.ok || !summaryRes.ok) {
-        throw new Error('Failed to fetch contract data');
+        const errorText = await contractRes.text().catch(() => 'Failed to fetch contract data');
+        throw new Error(errorText || 'Failed to fetch contract data');
       }
 
       const contract = await contractRes.json();
@@ -65,12 +84,19 @@ export default function CostGuardContractPage() {
         config: contract.config,
         summary: summary,
       });
+      setRateLimitError(false);
+      setRetryAfter(undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      // Only set error state if it's not already a rate limit error
+      if (!rateLimitError) {
+        setRateLimitError(false);
+        setRetryAfter(undefined);
+        setError(err instanceof Error ? err.message : 'Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, rateLimitError]);
 
   useEffect(() => {
     fetchData();
@@ -218,8 +244,10 @@ export default function CostGuardContractPage() {
     return (
       <div className="flex flex-col gap-10">
         <ErrorState
-          message={error}
+          message={error || undefined}
           onRetry={fetchData}
+          rateLimitError={rateLimitError}
+          retryAfter={retryAfter}
         />
       </div>
     );

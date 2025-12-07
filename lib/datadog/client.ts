@@ -1,6 +1,11 @@
 import { logError, debugApi } from '@/lib/debug';
 import { getCredentialFromVault } from './vault';
 import { supabaseAdmin } from '@/lib/supabase';
+import {
+  getCachedUsageData,
+  setCachedUsageData,
+  generateCacheKey,
+} from './cache';
 
 /**
  * Datadog API client for making authenticated requests
@@ -11,6 +16,28 @@ const DATADOG_API_BASE = 'https://api.datadoghq.com';
 export interface DatadogCredentials {
   apiKey: string;
   appKey: string;
+}
+
+/**
+ * Custom error class for Datadog rate limit errors (429)
+ */
+export class DatadogRateLimitError extends Error {
+  public readonly statusCode: number = 429;
+  public readonly retryAfter: number | null;
+  public readonly timestamp: Date;
+  public readonly attempt: number;
+
+  constructor(
+    message: string,
+    retryAfter: number | null = null,
+    attempt: number = 1,
+  ) {
+    super(message);
+    this.name = 'DatadogRateLimitError';
+    this.retryAfter = retryAfter;
+    this.timestamp = new Date();
+    this.attempt = attempt;
+  }
 }
 
 /**
@@ -146,6 +173,26 @@ async function datadogRequest<T>(
 
     debugApi(`Datadog API Error (${response.status})`, errorDetails);
     
+    // Handle 429 Rate Limit errors specifically
+    if (response.status === 429) {
+      const retryAfterHeader = response.headers.get('Retry-After');
+      const retryAfter = retryAfterHeader
+        ? parseInt(retryAfterHeader, 10)
+        : null;
+
+      debugApi('Datadog API 429 Rate Limit', {
+        ...errorDetails,
+        retryAfter,
+        retryAfterHeader,
+        message: 'Rate limit exceeded. Please wait before retrying.',
+      });
+
+      throw new DatadogRateLimitError(
+        `Datadog API rate limit exceeded: ${errorText}`,
+        retryAfter,
+      );
+    }
+    
     if (response.status === 404) {
       debugApi('Datadog API 404 Details', {
         ...errorDetails,
@@ -177,27 +224,130 @@ async function datadogRequest<T>(
 }
 
 /**
- * Get usage data for a specific product family
+ * Make an authenticated request to Datadog API with automatic retry on rate limit
+ * Implements exponential backoff and respects Retry-After header
+ */
+export async function datadogRequestWithRetry<T>(
+  endpoint: string,
+  credentials: DatadogCredentials,
+  options: RequestInit = {},
+  maxRetries: number = 3,
+): Promise<T> {
+  const delays = [1000, 2000, 4000]; // 1s, 2s, 4s
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await datadogRequest<T>(endpoint, credentials, options);
+    } catch (error) {
+      // Only retry on rate limit errors
+      if (error instanceof DatadogRateLimitError) {
+        // If this is the last attempt, throw the error
+        if (attempt >= maxRetries) {
+          debugApi('Datadog API Rate Limit - Max Retries Reached', {
+            endpoint,
+            attempt,
+            maxRetries,
+            retryAfter: error.retryAfter,
+            timestamp: new Date().toISOString(),
+          });
+          throw error;
+        }
+
+        // Calculate delay: use Retry-After if available, otherwise exponential backoff
+        const retryAfterMs = error.retryAfter
+          ? error.retryAfter * 1000
+          : delays[attempt - 1] || delays[delays.length - 1];
+        const delay = Math.min(retryAfterMs, delays[delays.length - 1]);
+
+        debugApi('Datadog API Rate Limit - Retrying', {
+          endpoint,
+          attempt,
+          maxRetries,
+          delay: `${delay}ms`,
+          retryAfter: error.retryAfter,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+        // Continue to next iteration (retry)
+        continue;
+      }
+
+      // For non-rate-limit errors, throw immediately
+      throw error;
+    }
+  }
+
+  // This should never be reached, but TypeScript needs it
+  throw new Error('Unexpected error in datadogRequestWithRetry');
+}
+
+/**
+ * Map legacy product family names to v2 API names
+ * Based on Datadog OpenAPI v2 specification
+ */
+const PRODUCT_FAMILY_MAP: Record<string, string> = {
+  logs: 'indexed_logs',
+  apm: 'indexed_spans',
+  infra: 'infra_hosts',
+  hosts: 'infra_hosts',
+  containers: 'infra_hosts', // Containers are part of infra_hosts in v2
+  rum: 'rum',
+  synthetics: 'synthetics_api',
+  custom_metrics: 'timeseries',
+  ci_visibility: 'ci_app',
+};
+
+/**
+ * Get usage data for a specific product family using v2 API
  * @param productFamily - logs, apm, infra, rum, synthetics, custom_metrics, ci_visibility
  * @param startHr - Start hour in RFC3339 format (e.g., "2024-01-01T00:00:00Z")
  * @param endHr - End hour in RFC3339 format
+ * @param organizationId - Organization ID for cache key generation (optional)
  */
 export async function getUsageData(
   credentials: DatadogCredentials,
   productFamily: string,
   startHr: string,
   endHr: string,
+  organizationId?: string,
 ): Promise<any> {
-  // Try the hourly usage endpoint first
-  const endpoint = `/api/v1/usage/${productFamily}`;
+  // Map legacy names to v2 API names
+  const v2ProductFamily = PRODUCT_FAMILY_MAP[productFamily] || productFamily;
+  
+  // Check cache if organizationId is provided
+  if (organizationId) {
+    const cacheKey = generateCacheKey(
+      productFamily,
+      startHr,
+      endHr,
+      organizationId,
+    );
+    const cached = await getCachedUsageData(cacheKey);
+    if (cached) {
+      debugApi('Using cached Datadog Usage Data', {
+        productFamily,
+        cacheKey,
+        timestamp: new Date().toISOString(),
+      });
+      return cached;
+    }
+  }
+  
+  // Use v2 hourly_usage endpoint (recommended by Datadog)
+  const endpoint = `/api/v2/usage/hourly_usage`;
   const params = new URLSearchParams({
-    start_hr: startHr,
-    end_hr: endHr,
+    'filter[timestamp][start]': startHr,
+    'filter[timestamp][end]': endHr,
+    'filter[product_families]': v2ProductFamily,
   });
   const fullUrl = `${endpoint}?${params.toString()}`;
 
-  debugApi('Fetching Datadog Usage Data', {
+  debugApi('Fetching Datadog Usage Data (v2)', {
     productFamily,
+    v2ProductFamily,
     endpoint: fullUrl,
     startHr,
     endHr,
@@ -205,16 +355,30 @@ export async function getUsageData(
   });
 
   try {
-    return await datadogRequest<any>(
+    const data = await datadogRequestWithRetry<any>(
       fullUrl,
       credentials,
     );
+
+    // Cache the result if organizationId is provided
+    if (organizationId && data) {
+      const cacheKey = generateCacheKey(
+        productFamily,
+        startHr,
+        endHr,
+        organizationId,
+      );
+      await setCachedUsageData(cacheKey, data, 86400); // 24 hours TTL
+    }
+
+    return data;
   } catch (error) {
     // If 404, the endpoint may not be available for this account
     // Return empty structure instead of throwing
     if (error instanceof Error && error.message.includes('404')) {
       debugApi(`Datadog Usage Endpoint 404 - ${productFamily}`, {
         productFamily,
+        v2ProductFamily,
         endpoint: fullUrl,
         startHr,
         endHr,
@@ -222,45 +386,45 @@ export async function getUsageData(
         suggestion: 'This endpoint may not be available for this Datadog account or may require specific plan permissions',
         timestamp: new Date().toISOString(),
       });
-      return { usage: [], errors: [{ message: 'Endpoint not available' }] };
+      return { data: [], errors: [{ message: 'Endpoint not available' }] };
     }
     
-    // For other errors, try timeseries endpoint as fallback
+    // For other errors, try v1 endpoint as fallback (deprecated but may still work)
     if (error instanceof Error) {
-      const timeseriesEndpoint = `/api/v1/usage/timeseries`;
-      const timeseriesParams = new URLSearchParams({
+      const v1Endpoint = `/api/v1/usage/${productFamily}`;
+      const v1Params = new URLSearchParams({
         start_hr: startHr,
         end_hr: endHr,
-        product_family: productFamily,
       });
-      const timeseriesUrl = `${timeseriesEndpoint}?${timeseriesParams.toString()}`;
+      const v1Url = `${v1Endpoint}?${v1Params.toString()}`;
 
-      debugApi('Trying Datadog Timeseries Endpoint as Fallback', {
+      debugApi('Trying Datadog v1 Endpoint as Fallback (deprecated)', {
         productFamily,
-        endpoint: timeseriesUrl,
+        endpoint: v1Url,
         originalError: error.message,
         timestamp: new Date().toISOString(),
       });
 
       try {
         return await datadogRequest<any>(
-          timeseriesUrl,
+          v1Url,
           credentials,
         );
-      } catch (timeseriesError) {
+      } catch (v1Error) {
         // If both fail, return empty structure with detailed logging
         debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
           productFamily,
-          primaryEndpoint: fullUrl,
-          fallbackEndpoint: timeseriesUrl,
-          primaryError: error.message,
-          fallbackError: timeseriesError instanceof Error ? timeseriesError.message : String(timeseriesError),
+          v2ProductFamily,
+          v2Endpoint: fullUrl,
+          v1Endpoint: v1Url,
+          v2Error: error.message,
+          v1Error: v1Error instanceof Error ? v1Error.message : String(v1Error),
           startHr,
           endHr,
           timestamp: new Date().toISOString(),
         });
-        logError(timeseriesError, `Datadog Usage Data - ${productFamily}`);
-        return { usage: [], errors: [{ message: 'Endpoints not available' }] };
+        logError(v1Error, `Datadog Usage Data - ${productFamily}`);
+        return { data: [], errors: [{ message: 'Endpoints not available' }] };
       }
     }
     
@@ -377,23 +541,39 @@ export async function getMultipleUsageData(
   productFamilies: string[],
   startHr: string,
   endHr: string,
+  organizationId?: string,
 ): Promise<Record<string, any>> {
   const requests = productFamilies.map((family) =>
-    getUsageData(credentials, family, startHr, endHr).then(
+    getUsageData(credentials, family, startHr, endHr, organizationId).then(
       (data) => ({ family, data }),
-      (error) => ({ family, error: error.message }),
+      (error) => ({ 
+        family, 
+        error: error instanceof Error ? error.message : String(error),
+        isRateLimit: error instanceof DatadogRateLimitError,
+        rateLimitError: error instanceof DatadogRateLimitError ? error : null,
+      }),
     ),
   );
 
   const results = await Promise.all(requests);
   const data: Record<string, any> = {};
+  let rateLimitError: DatadogRateLimitError | null = null;
 
   for (const result of results) {
     if ('error' in result) {
       data[result.family] = { error: result.error };
+      // Track rate limit errors - use the first one we encounter
+      if (result.isRateLimit && result.rateLimitError && !rateLimitError) {
+        rateLimitError = result.rateLimitError;
+      }
     } else {
       data[result.family] = result.data;
     }
+  }
+
+  // If we have a rate limit error, throw it so the API route can handle it
+  if (rateLimitError) {
+    throw rateLimitError;
   }
 
   return data;

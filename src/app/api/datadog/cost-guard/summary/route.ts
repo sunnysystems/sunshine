@@ -8,6 +8,7 @@ import {
   getDatadogCredentials,
   getMultipleUsageData,
   getOrganizationIdFromTenant,
+  DatadogRateLimitError,
 } from '@/lib/datadog/client';
 import {
   calculateOverageRisk,
@@ -16,6 +17,7 @@ import {
   calculateTotalUsage,
   calculateUtilization,
   extractTrendFromTimeseries,
+  bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
@@ -130,6 +132,7 @@ export async function GET(request: NextRequest) {
       productFamilies,
       startHr,
       endHr,
+      organizationId,
     );
 
     // Calculate total current usage across all products
@@ -141,7 +144,13 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const usage = calculateTotalUsage(data);
+      let usage = calculateTotalUsage(data);
+      
+      // Convert logs from bytes to GB
+      if (productFamily === 'logs') {
+        usage = bytesToGB(usage);
+      }
+      
       totalCurrentUsage += usage;
 
       const timeseries = data?.usage?.[0]?.timeseries || [];
@@ -201,6 +210,19 @@ export async function GET(request: NextRequest) {
       { status: 200 },
     );
   } catch (error) {
+    // Handle rate limit errors specifically
+    if (error instanceof DatadogRateLimitError) {
+      return NextResponse.json(
+        {
+          message: 'Rate limit exceeded. Please wait before retrying.',
+          rateLimit: true,
+          retryAfter: error.retryAfter,
+          error: error.message,
+        },
+        { status: 429 },
+      );
+    }
+
     // eslint-disable-next-line no-console
     console.error('Error fetching summary:', error);
     return NextResponse.json(

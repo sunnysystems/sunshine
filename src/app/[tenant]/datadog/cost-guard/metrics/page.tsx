@@ -43,6 +43,8 @@ export default function CostGuardMetricsPage() {
   const [activeCategory, setActiveCategory] = useState<MetricCategory>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitError, setRateLimitError] = useState(false);
+  const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [metricsData, setMetricsData] = useState<any[]>([]);
 
   // Extract tenant from pathname
@@ -72,23 +74,46 @@ export default function CostGuardMetricsPage() {
     try {
       setLoading(true);
       setError(null);
+      setRateLimitError(false);
+      setRetryAfter(undefined);
 
       const response = await fetch(
         `/api/datadog/cost-guard/metrics?tenant=${encodeURIComponent(tenant)}`,
       );
 
+      // Check for rate limit errors
+      if (response.status === 429) {
+        const errorData = await response.json().catch(() => ({
+          message: 'Rate limit exceeded',
+          retryAfter: 60,
+        }));
+        setRateLimitError(true);
+        setRetryAfter(errorData.retryAfter || 60);
+        setError(errorData.message || 'Rate limit exceeded');
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
-        throw new Error('Failed to fetch metrics data');
+        const errorText = await response.text().catch(() => 'Failed to fetch metrics data');
+        throw new Error(errorText || 'Failed to fetch metrics data');
       }
 
       const data = await response.json();
       setMetricsData(data.metrics || []);
+      setRateLimitError(false);
+      setRetryAfter(undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      // Only set error state if it's not already a rate limit error
+      if (!rateLimitError) {
+        setRateLimitError(false);
+        setRetryAfter(undefined);
+        setError(err instanceof Error ? err.message : 'Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, rateLimitError]);
 
   useEffect(() => {
     fetchData();
@@ -173,8 +198,10 @@ export default function CostGuardMetricsPage() {
           </p>
         </header>
         <ErrorState
-          message={error}
+          message={error || undefined}
           onRetry={fetchData}
+          rateLimitError={rateLimitError}
+          retryAfter={retryAfter}
         />
       </div>
     );

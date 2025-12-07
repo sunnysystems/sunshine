@@ -602,6 +602,14 @@ export const translations = {
         lastUpdated: 'Last updated: {timestamp}',
         error: 'Unable to store credentials. Please try again.',
       },
+      api: {
+        rateLimit: {
+          title: 'Rate Limit Exceeded',
+          message: 'The Datadog API is temporarily rate limiting requests. Please wait a moment and try again.',
+          retrying: 'Retrying automatically in {seconds} seconds...',
+          waiting: 'Waiting for rate limit to reset. Please wait...',
+        },
+      },
       observability: {
         costGuard: {
           title: 'Cost Guard',
@@ -1615,6 +1623,14 @@ export const translations = {
         notesPlaceholder: 'Adicione escopo, política de rotação ou contatos responsáveis...',
         lastUpdated: 'Última atualização: {timestamp}',
         error: 'Não foi possível salvar as credenciais. Tente novamente.',
+      },
+      api: {
+        rateLimit: {
+          title: 'Limite de Taxa Excedido',
+          message: 'A API do Datadog está temporariamente limitando requisições. Por favor, aguarde um momento e tente novamente.',
+          retrying: 'Tentando novamente automaticamente em {seconds} segundos...',
+          waiting: 'Aguardando o limite de taxa ser resetado. Por favor, aguarde...',
+        },
       },
       observability: {
         costGuard: {

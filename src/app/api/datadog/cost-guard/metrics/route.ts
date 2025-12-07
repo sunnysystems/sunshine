@@ -8,12 +8,14 @@ import {
   getDatadogCredentials,
   getMultipleUsageData,
   getOrganizationIdFromTenant,
+  DatadogRateLimitError,
 } from '@/lib/datadog/client';
 import {
   calculateProjection,
   calculateTotalUsage,
   determineStatus,
   extractTrendFromTimeseries,
+  bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { debugApi, logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -173,6 +175,7 @@ export async function GET(request: NextRequest) {
       productFamilies,
       startHr,
       endHr,
+      organizationId,
     );
     const fetchDuration = Date.now() - fetchStartTime;
 
@@ -207,7 +210,7 @@ export async function GET(request: NextRequest) {
           organizationId,
           tenant,
           error: data.error,
-          endpoint: `/api/v1/usage/${productFamily}`,
+          endpoint: `/api/v2/usage/hourly_usage`,
           dateRange: { startHr, endHr },
           timestamp: new Date().toISOString(),
         });
@@ -216,14 +219,15 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // Check if data structure is valid
-      if (!data || (!data.usage && !data.timeseries)) {
+      // Check if data structure is valid (v2 format has 'data', v1 has 'usage' or 'timeseries')
+      if (!data || (!data.data && !data.usage && !data.timeseries)) {
         debugApi(`No usage data structure for ${productFamily}`, {
           productFamily,
           metricKey,
           organizationId,
           tenant,
           dataKeys: data ? Object.keys(data) : [],
+          hasData: !!data?.data,
           hasUsage: !!data?.usage,
           hasTimeseries: !!data?.timeseries,
           timestamp: new Date().toISOString(),
@@ -231,13 +235,23 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const totalUsage = calculateTotalUsage(data);
+      let totalUsage = calculateTotalUsage(data);
       
-      // Extract timeseries data - handle different response formats
+      // Convert logs from bytes to GB
+      if (productFamily === 'logs' || metricKey === 'logsIngested') {
+        totalUsage = bytesToGB(totalUsage);
+      }
+      
+      // Extract timeseries data - handle v2 and legacy v1 response formats
       let timeseriesData: any = null;
-      if (data?.usage && Array.isArray(data.usage) && data.usage.length > 0) {
+      if (data?.data && Array.isArray(data.data)) {
+        // v2 API format: pass the entire response object
+        timeseriesData = data;
+      } else if (data?.usage && Array.isArray(data.usage) && data.usage.length > 0) {
+        // v1 format: /usage/{product}
         timeseriesData = data.usage[0]?.timeseries || data.usage;
       } else if (data?.timeseries) {
+        // v1 format: /usage/timeseries
         timeseriesData = data.timeseries;
       }
       
@@ -250,11 +264,16 @@ export async function GET(request: NextRequest) {
         | undefined;
       const thresholds = (config?.thresholds as Record<string, number>) || {};
       
-      const committed = productFamilyConfig?.committed || 1000; // Default
-      const threshold =
+      // For logs, values from contract are assumed to be in GB
+      // Usage from API is converted from bytes to GB above
+      let committed = productFamilyConfig?.committed || 1000; // Default in GB for logs
+      let threshold =
         productFamilyConfig?.threshold ||
         thresholds[productFamily] ||
         committed * 0.9; // Default 90% threshold
+
+      // Note: committed and threshold are already in GB for logs (as configured by user)
+      // Only usage was converted from bytes to GB above
 
       const projected = calculateProjection(trend.map((t) => totalUsage * (t / 100)), 30);
       const status = determineStatus(totalUsage, committed, threshold);
@@ -283,8 +302,23 @@ export async function GET(request: NextRequest) {
       { status: 200 },
     );
   } catch (error) {
+    // Handle rate limit errors specifically
+    if (error instanceof DatadogRateLimitError) {
+      logError(error, 'Datadog Rate Limit Error in Metrics Route');
+      return NextResponse.json(
+        {
+          message: 'Rate limit exceeded. Please wait before retrying.',
+          rateLimit: true,
+          retryAfter: error.retryAfter,
+          error: error.message,
+        },
+        { status: 429 },
+      );
+    }
+
     // eslint-disable-next-line no-console
     console.error('Error fetching metrics:', error);
+    logError(error, 'Error fetching Datadog metrics');
     return NextResponse.json(
       {
         message:
