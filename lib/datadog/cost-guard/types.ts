@@ -40,6 +40,40 @@ export interface MetricUsage {
   unit: string;
 }
 
+/**
+ * Configuration for an individual Datadog service
+ */
+export interface ServiceConfig {
+  id?: string;
+  serviceKey: string;
+  serviceName: string;
+  productFamily: string;
+  usageType?: string;
+  quantity: number;
+  listPrice: number;
+  unit: string;
+  committedValue: number; // quantity * listPrice
+  threshold?: number | null;
+  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
+}
+
+/**
+ * Usage data for an individual service
+ */
+export interface ServiceUsage {
+  serviceKey: string;
+  serviceName: string;
+  usage: number;
+  committed: number;
+  threshold?: number | null;
+  projected: number;
+  trend: number[];
+  status: 'ok' | 'watch' | 'critical';
+  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
+  unit: string;
+  utilization: number; // percentage
+}
+
 export interface ContractConfig {
   organizationId: string;
   contractStartDate: string;
@@ -55,6 +89,7 @@ export interface ContractConfig {
     }
   >;
   thresholds: Record<string, number>;
+  services?: ServiceConfig[]; // Array of individual services
   createdAt: string;
   updatedAt: string;
   updatedBy?: string | null;
@@ -85,6 +120,7 @@ export interface CostGuardContractData {
 
 export interface CostGuardMetricsData {
   metrics: MetricUsage[];
+  services?: ServiceUsage[]; // Individual service metrics
   period: {
     startDate: string;
     endDate: string;

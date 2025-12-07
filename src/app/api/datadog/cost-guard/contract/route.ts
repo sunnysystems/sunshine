@@ -85,9 +85,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get individual services if config exists
+    let services = null;
+    if (config?.id) {
+      const { data: servicesData } = await supabaseAdmin
+        .from('datadog_cost_guard_services')
+        .select('*')
+        .eq('config_id', config.id)
+        .order('service_name');
+      
+      services = servicesData || [];
+    }
+
     return NextResponse.json(
       {
         config: config || null,
+        services: services || [],
       },
       { status: 200 },
     );
@@ -245,6 +258,39 @@ export async function POST(request: NextRequest) {
         { message: 'Failed to save contract configuration' },
         { status: 500 },
       );
+    }
+
+    // Save individual services if provided
+    if (configData.services && Array.isArray(configData.services) && configData.services.length > 0) {
+      // Delete existing services for this config
+      await supabaseAdmin
+        .from('datadog_cost_guard_services')
+        .delete()
+        .eq('config_id', config.id);
+
+      // Insert new services
+      const servicesToInsert = configData.services.map((service: any) => ({
+        config_id: config.id,
+        service_name: service.serviceName,
+        service_key: service.serviceKey,
+        product_family: service.productFamily,
+        usage_type: service.usageType || null,
+        quantity: service.quantity || 0,
+        list_price: service.listPrice || 0,
+        unit: service.unit,
+        committed_value: service.committedValue || (service.quantity || 0) * (service.listPrice || 0),
+        threshold: service.threshold !== null && service.threshold !== undefined ? service.threshold : null,
+      }));
+
+      const { error: servicesError } = await supabaseAdmin
+        .from('datadog_cost_guard_services')
+        .insert(servicesToInsert);
+
+      if (servicesError) {
+        // eslint-disable-next-line no-console
+        console.error('Error saving services:', servicesError);
+        // Don't fail the request, but log the error
+      }
     }
 
     // Remove thresholds that were set to 0 or empty using SQL JSONB operations

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,70 +13,23 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { useTranslation } from '@/hooks/useTranslation';
+import { SERVICE_MAPPINGS, getServicesByCategory } from '@/lib/datadog/cost-guard/service-mapping';
+import type { ServiceConfig } from '@/lib/datadog/cost-guard/types';
+import { createDefaultServices } from '@/lib/datadog/cost-guard/quote-importer';
 
-const productRows = [
-  {
-    id: 'logs_ingested_gb',
-    productLabel: 'datadog.costGuard.metrics.logs',
-    unit: 'GB',
-    committed: '1000',
-    threshold: '900',
-  },
-  {
-    id: 'custom_metrics',
-    productLabel: 'datadog.costGuard.metrics.customMetrics',
-    unit: 'metrics',
-    committed: '500',
-    threshold: '450',
-  },
-  {
-    id: 'apm_traces',
-    productLabel: 'datadog.costGuard.metrics.apmTraces',
-    unit: 'traces',
-    committed: '20000000',
-    threshold: '18000000',
-  },
-  {
-    id: 'infra_hosts',
-    productLabel: 'datadog.costGuard.metrics.infraHosts',
-    unit: 'hosts',
-    committed: '50',
-    threshold: '45',
-  },
-  {
-    id: 'containers',
-    productLabel: 'datadog.costGuard.metrics.containers',
-    unit: 'containers',
-    committed: '100',
-    threshold: '95',
-  },
-  {
-    id: 'rum_sessions',
-    productLabel: 'datadog.costGuard.metrics.rumSessions',
-    unit: 'sessions',
-    committed: '1000000',
-    threshold: '900000',
-  },
-  {
-    id: 'synthetics_api_tests',
-    productLabel: 'datadog.costGuard.metrics.synthetics',
-    unit: 'tests',
-    committed: '100000',
-    threshold: '80000',
-  },
-  {
-    id: 'ci_visibility',
-    productLabel: 'datadog.costGuard.metrics.ciVisibility',
-    unit: 'commits',
-    committed: '100000',
-    threshold: '90000',
-  },
-];
-
-interface ProductData {
-  committed: string;
+interface ServiceFormData {
+  quantity: string;
+  listPrice: string;
   threshold: string;
 }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  infrastructure: 'Infrastructure',
+  apm: 'APM & Tracing',
+  logs: 'Logs',
+  observability: 'Observability & Testing',
+  security: 'Security & Compliance',
+};
 
 export default function EditContractPage() {
   const { t } = useTranslation();
@@ -85,6 +39,9 @@ export default function EditContractPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract tenant from pathname
   const tenant = useMemo(() => {
@@ -97,7 +54,20 @@ export default function EditContractPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'quarterly' | 'annual'>('monthly');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [products, setProducts] = useState<Record<string, ProductData>>({});
+  const [services, setServices] = useState<Record<string, ServiceFormData>>({});
+
+  // Initialize services from mappings
+  useEffect(() => {
+    const defaultServices: Record<string, ServiceFormData> = {};
+    Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+      defaultServices[mapping.serviceKey] = {
+        quantity: '0',
+        listPrice: '0',
+        threshold: '',
+      };
+    });
+    setServices(defaultServices);
+  }, []);
 
   // Load existing contract data
   useEffect(() => {
@@ -119,64 +89,31 @@ export default function EditContractPage() {
             setStartDate(config.contract_start_date || '');
             setEndDate(config.contract_end_date || '');
 
-            // Load product families data
-            const productFamilies = (config.product_families as Record<string, any>) || {};
-            const initialProducts: Record<string, ProductData> = {};
-
-            // Map Datadog product family names to our product IDs
-            const productFamilyMap: Record<string, string> = {
-              logs: 'logs_ingested_gb',
-              custom_metrics: 'custom_metrics',
-              apm: 'apm_traces',
-              hosts: 'infra_hosts',
-              containers: 'containers',
-              rum: 'rum_sessions',
-              synthetics: 'synthetics_api_tests',
-              ci_visibility: 'ci_visibility',
-            };
-
-            productRows.forEach((row) => {
-              // Try to find data by product family name
-              let familyData = null;
-              for (const [familyName, productId] of Object.entries(productFamilyMap)) {
-                if (productId === row.id && productFamilies[familyName]) {
-                  familyData = productFamilies[familyName];
-                  break;
-                }
-              }
-              // Fallback to direct ID lookup
-              if (!familyData) {
-                familyData = productFamilies[row.id];
-              }
-
-              // Only show threshold if it's a valid positive number
-              let thresholdValue = '';
-              if (familyData?.threshold !== undefined && familyData?.threshold !== null) {
-                const thresholdNum = typeof familyData.threshold === 'number' 
-                  ? familyData.threshold 
-                  : Number.parseFloat(String(familyData.threshold));
-                if (!Number.isNaN(thresholdNum) && thresholdNum > 0) {
-                  thresholdValue = thresholdNum.toString();
-                }
-              }
-
-              initialProducts[row.id] = {
-                committed: familyData?.committed?.toString() || row.committed,
-                threshold: thresholdValue,
-              };
-            });
-
-            setProducts(initialProducts);
+            // Load services data
+            if (data.services && Array.isArray(data.services) && data.services.length > 0) {
+              const servicesData: Record<string, ServiceFormData> = {};
+              data.services.forEach((service: any) => {
+                servicesData[service.service_key] = {
+                  quantity: String(service.quantity || 0),
+                  listPrice: String(service.list_price || 0),
+                  threshold: service.threshold !== null && service.threshold !== undefined
+                    ? String(service.threshold)
+                    : '',
+                };
+              });
+              setServices(servicesData);
+            }
           } else {
             // No config exists, use defaults
-            const defaultProducts: Record<string, ProductData> = {};
-            productRows.forEach((row) => {
-              defaultProducts[row.id] = {
-                committed: row.committed,
-                threshold: row.threshold || '',
+            const defaultServices: Record<string, ServiceFormData> = {};
+            Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+              defaultServices[mapping.serviceKey] = {
+                quantity: '0',
+                listPrice: '0',
+                threshold: '',
               };
             });
-            setProducts(defaultProducts);
+            setServices(defaultServices);
             // Set default dates (current month)
             const now = new Date();
             const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -203,57 +140,38 @@ export default function EditContractPage() {
       setError(null);
       setSuccess(false);
 
-      // Build product families object
-      // Map product IDs to Datadog product family names
-      const productFamilyMap: Record<string, string> = {
-        logs_ingested_gb: 'logs',
-        custom_metrics: 'custom_metrics',
-        apm_traces: 'apm',
-        infra_hosts: 'hosts',
-        containers: 'containers',
-        rum_sessions: 'rum',
-        synthetics_api_tests: 'synthetics',
-        ci_visibility: 'ci_visibility',
-      };
+      // Build services array from form data
+      const servicesToSave: ServiceConfig[] = [];
+      let totalContractedSpend = 0;
 
-      const productFamilies: Record<string, { committed: number; threshold?: number }> = {};
-      const thresholds: Record<string, number> = {};
+      Object.entries(services).forEach(([serviceKey, formData]) => {
+        const mapping = SERVICE_MAPPINGS[serviceKey];
+        if (!mapping) return;
 
-      productRows.forEach((row) => {
-        const productData = products[row.id] || { committed: row.committed, threshold: row.threshold };
-        const committed = Number.parseFloat(productData.committed) || 0;
-        
-        // Parse threshold: treat empty string or '0' as undefined (no custom threshold)
-        let threshold: number | undefined = undefined;
-        const thresholdValue = productData.threshold;
-        
-        // Check if threshold exists and is not empty
-        if (thresholdValue !== undefined && thresholdValue !== null && thresholdValue !== '') {
-          const thresholdStr = String(thresholdValue).trim();
-          if (thresholdStr !== '') {
-            const parsed = Number.parseFloat(thresholdStr);
-            if (!Number.isNaN(parsed) && parsed > 0) {
-              threshold = parsed;
-            }
-          }
-        }
+        const quantity = Number.parseFloat(formData.quantity) || 0;
+        const listPrice = Number.parseFloat(formData.listPrice) || 0;
+        const committedValue = quantity * listPrice;
+        const threshold = formData.threshold
+          ? Number.parseFloat(formData.threshold)
+          : quantity * 0.9;
 
-        // Map to API format using product family name
-        const productFamilyName = productFamilyMap[row.id] || row.id;
-        productFamilies[productFamilyName] = { committed };
-        
-        // Only include threshold if it's a valid positive number
-        if (threshold !== undefined && threshold > 0) {
-          productFamilies[productFamilyName].threshold = threshold;
-          thresholds[productFamilyName] = threshold;
+        // Only include services with quantity > 0
+        if (quantity > 0) {
+          servicesToSave.push({
+            serviceKey,
+            serviceName: mapping.serviceName,
+            productFamily: mapping.productFamily,
+            usageType: mapping.usageType,
+            quantity,
+            listPrice,
+            unit: mapping.unit,
+            committedValue,
+            threshold,
+            category: mapping.category,
+          });
+          totalContractedSpend += committedValue;
         }
       });
-
-      // Calculate contracted spend (sum of all committed values)
-      const contractedSpend = Object.values(productFamilies).reduce(
-        (sum, p) => sum + (p.committed || 0),
-        0,
-      );
 
       const response = await fetch('/api/datadog/cost-guard/contract', {
         method: 'POST',
@@ -267,9 +185,8 @@ export default function EditContractPage() {
           contractEndDate: endDate,
           planName,
           billingCycle,
-          contractedSpend,
-          productFamilies,
-          thresholds,
+          contractedSpend: totalContractedSpend,
+          services: servicesToSave,
         }),
       });
 
@@ -292,32 +209,131 @@ export default function EditContractPage() {
 
   const handleReset = () => {
     // Reset to original values
-    const defaultProducts: Record<string, ProductData> = {};
-    productRows.forEach((row) => {
-      defaultProducts[row.id] = {
-        committed: row.committed,
-        threshold: row.threshold || '',
+    const defaultServices: Record<string, ServiceFormData> = {};
+    Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+      defaultServices[mapping.serviceKey] = {
+        quantity: '0',
+        listPrice: '0',
+        threshold: '',
       };
     });
-    setProducts(defaultProducts);
+    setServices(defaultServices);
     setPlanName('Enterprise Observability');
     setBillingCycle('monthly');
     setError(null);
     setSuccess(false);
   };
 
-  const updateProduct = (productId: string, field: 'committed' | 'threshold', value: string) => {
-    setProducts((prev) => {
-      const current = prev[productId] || { committed: '', threshold: '' };
+  const updateService = (
+    serviceKey: string,
+    field: 'quantity' | 'listPrice' | 'threshold',
+    value: string,
+  ) => {
+    setServices((prev) => {
+      const current = prev[serviceKey] || { quantity: '0', listPrice: '0', threshold: '' };
       return {
         ...prev,
-        [productId]: {
+        [serviceKey]: {
           ...current,
           [field]: value,
         },
       };
     });
   };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
+      setUploadError('Please upload a PDF file');
+      return;
+    }
+
+    // Validate file size (10MB)
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setUploadError('File size exceeds 10MB limit');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setUploadError(null);
+      setError(null);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        `/api/datadog/cost-guard/import-quote?tenant=${encodeURIComponent(tenant)}`,
+        {
+          method: 'POST',
+          body: formData,
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to import quote');
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.services) {
+        // Update form with imported data
+        if (data.quoteData.contractStartDate) {
+          setStartDate(data.quoteData.contractStartDate);
+        }
+        if (data.quoteData.contractEndDate) {
+          setEndDate(data.quoteData.contractEndDate);
+        }
+        if (data.quoteData.planName) {
+          setPlanName(data.quoteData.planName);
+        }
+        if (data.quoteData.billingCycle) {
+          setBillingCycle(data.quoteData.billingCycle as 'monthly' | 'quarterly' | 'annual');
+        }
+
+        // Update services
+        const importedServices: Record<string, ServiceFormData> = {};
+        data.services.forEach((service: ServiceConfig) => {
+          importedServices[service.serviceKey] = {
+            quantity: String(service.quantity),
+            listPrice: String(service.listPrice),
+            threshold: service.threshold ? String(service.threshold) : '',
+          };
+        });
+
+        // Merge with existing services (keep existing if not in import)
+        setServices((prev) => ({
+          ...prev,
+          ...importedServices,
+        }));
+
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 5000);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to import quote');
+    } finally {
+      setUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Calculate total contracted spend
+  const totalContractedSpend = useMemo(() => {
+    return Object.entries(services).reduce((total, [serviceKey, formData]) => {
+      const quantity = Number.parseFloat(formData.quantity) || 0;
+      const listPrice = Number.parseFloat(formData.listPrice) || 0;
+      return total + quantity * listPrice;
+    }, 0);
+  }, [services]);
 
   if (loading) {
     return (
@@ -329,6 +345,15 @@ export default function EditContractPage() {
       </div>
     );
   }
+
+  // Group services by category
+  const servicesByCategory = {
+    infrastructure: getServicesByCategory('infrastructure'),
+    apm: getServicesByCategory('apm'),
+    logs: getServicesByCategory('logs'),
+    observability: getServicesByCategory('observability'),
+    security: getServicesByCategory('security'),
+  };
 
   return (
     <div className="space-y-8">
@@ -346,7 +371,7 @@ export default function EditContractPage() {
               {t('datadog.costGuard.contractEdit.title')}
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              {t('datadog.costGuard.contractEdit.description')}
+              Configure all Datadog services from your quote. Use LIST PRICE (not sales price) for pricing.
             </p>
           </div>
           <div className="flex gap-3">
@@ -357,25 +382,61 @@ export default function EditContractPage() {
               {saving ? 'Saving...' : t('datadog.costGuard.contractEdit.actions.save')}
             </Button>
           </div>
-          {error && (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-          {success && (
-            <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">
-              Contract saved successfully! Redirecting...
-            </div>
-          )}
         </div>
+        {error && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">
+            Contract saved successfully! Redirecting...
+          </div>
+        )}
       </div>
 
       <Card className="border-border/60 bg-card/95 shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">
-            {t('datadog.costGuard.contractEdit.sections.overview')}
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-semibold">
+              {t('datadog.costGuard.contractEdit.sections.overview')}
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf"
+                onChange={handleFileUpload}
+                className="hidden"
+                id="pdf-upload"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || saving || loading}
+              >
+                {uploading ? (
+                  <>
+                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import PDF Quote
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
+        {uploadError && (
+          <div className="mx-6 mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {uploadError}
+          </div>
+        )}
         <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="contractName">{t('datadog.costGuard.contractEdit.fields.contractName')}</Label>
@@ -417,71 +478,110 @@ export default function EditContractPage() {
               onChange={(e) => setEndDate(e.target.value)}
             />
           </div>
+          <div className="space-y-2">
+            <Label>Total Contracted Spend (USD)</Label>
+            <Input
+              value={`$${totalContractedSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              disabled
+              className="font-semibold"
+            />
+          </div>
         </CardContent>
       </Card>
 
-      <Card className="border-border/60 bg-card/95 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold">
-            {t('datadog.costGuard.contractEdit.sections.products')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 text-xs text-muted-foreground md:grid-cols-4">
-            <span>{t('datadog.costGuard.contractEdit.fields.productLabel')}</span>
-            <span>{t('datadog.costGuard.contractEdit.fields.unitLabel')}</span>
-            <span>{t('datadog.costGuard.contractEdit.fields.committedLabel')}</span>
-            <span>{t('datadog.costGuard.contractEdit.fields.thresholdLabel')}</span>
-          </div>
-          <Separator />
-          <div className="space-y-3">
-            {productRows.map((row) => (
-              <div
-                key={row.id}
-                className="grid gap-3 rounded-lg border border-border/60 bg-muted/40 p-4 md:grid-cols-4"
-              >
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('datadog.costGuard.contractEdit.fields.productLabel')}
-                  </Label>
-                  <Input defaultValue={t(`${row.productLabel}.label`)} disabled />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('datadog.costGuard.contractEdit.fields.unitLabel')}
-                  </Label>
-                  <Input defaultValue={row.unit} disabled />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('datadog.costGuard.contractEdit.fields.committedLabel')}
-                  </Label>
-                  <Input
-                    value={products[row.id]?.committed || row.committed}
-                    onChange={(e) => updateProduct(row.id, 'committed', e.target.value)}
-                    type="number"
-                    min="0"
-                    step="1"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('datadog.costGuard.contractEdit.fields.thresholdLabel')}
-                  </Label>
-                  <Input
-                    value={products[row.id]?.threshold ?? ''}
-                    onChange={(e) => updateProduct(row.id, 'threshold', e.target.value)}
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="Optional"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Services by Category */}
+      {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+        <Card key={category} className="border-border/60 bg-card/95 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">
+              {CATEGORY_LABELS[category] || category}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 text-xs text-muted-foreground md:grid-cols-6">
+              <span>Service Name</span>
+              <span>Unit</span>
+              <span>Quantity</span>
+              <span>List Price (USD)</span>
+              <span>Total Value</span>
+              <span>Threshold</span>
+            </div>
+            <Separator />
+            <div className="space-y-3">
+              {categoryServices.map((mapping) => {
+                const serviceData = services[mapping.serviceKey] || {
+                  quantity: '0',
+                  listPrice: '0',
+                  threshold: '',
+                };
+                const quantity = Number.parseFloat(serviceData.quantity) || 0;
+                const listPrice = Number.parseFloat(serviceData.listPrice) || 0;
+                const totalValue = quantity * listPrice;
+                const threshold = serviceData.threshold
+                  ? Number.parseFloat(serviceData.threshold)
+                  : quantity * 0.9;
+
+                return (
+                  <div
+                    key={mapping.serviceKey}
+                    className="grid gap-3 rounded-lg border border-border/60 bg-muted/40 p-4 md:grid-cols-6"
+                  >
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Service</Label>
+                      <Input value={mapping.serviceName} disabled className="text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Unit</Label>
+                      <Input value={mapping.unit} disabled className="text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Quantity</Label>
+                      <Input
+                        value={serviceData.quantity}
+                        onChange={(e) => updateService(mapping.serviceKey, 'quantity', e.target.value)}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">List Price</Label>
+                      <Input
+                        value={serviceData.listPrice}
+                        onChange={(e) => updateService(mapping.serviceKey, 'listPrice', e.target.value)}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Total Value</Label>
+                      <Input
+                        value={`$${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        disabled
+                        className="font-semibold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Threshold</Label>
+                      <Input
+                        value={serviceData.threshold}
+                        onChange={(e) => updateService(mapping.serviceKey, 'threshold', e.target.value)}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={`${threshold.toFixed(2)} (90%)`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={handleReset} disabled={saving}>
@@ -491,17 +591,6 @@ export default function EditContractPage() {
           {saving ? 'Saving...' : t('datadog.costGuard.contractEdit.actions.save')}
         </Button>
       </div>
-      {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">
-          Contract saved successfully! Redirecting...
-        </div>
-      )}
     </div>
   );
 }
-

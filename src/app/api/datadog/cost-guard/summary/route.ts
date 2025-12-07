@@ -7,6 +7,7 @@ import {
   formatDatadogHour,
   getDatadogCredentials,
   getMultipleUsageData,
+  getUsageData,
   getOrganizationIdFromTenant,
   DatadogRateLimitError,
 } from '@/lib/datadog/client';
@@ -19,6 +20,7 @@ import {
   extractTrendFromTimeseries,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
+import { getServiceMapping } from '@/lib/datadog/cost-guard/service-mapping';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
 
@@ -87,9 +89,24 @@ export async function GET(request: NextRequest) {
       .eq('organization_id', organizationId)
       .single();
 
-    const contractedSpend = config?.contracted_spend
-      ? Number(config.contracted_spend)
-      : 0;
+    // Get individual services from the contract
+    const { data: services } = await supabaseAdmin
+      .from('datadog_cost_guard_services')
+      .select('*')
+      .eq('config_id', config?.id || '')
+      .order('service_name');
+
+    // Calculate contracted spend from services (using list prices) or fallback to config
+    let contractedSpend = 0;
+    if (services && services.length > 0) {
+      contractedSpend = services.reduce((sum, service) => {
+        return sum + Number(service.committed_value || 0);
+      }, 0);
+    } else {
+      contractedSpend = config?.contracted_spend
+        ? Number(config.contracted_spend)
+        : 0;
+    }
 
     // Get Datadog credentials
     const credentials = await getDatadogCredentials(organizationId);
@@ -115,7 +132,125 @@ export async function GET(request: NextRequest) {
     const startHr = formatDatadogHour(startDate);
     const endHr = formatDatadogHour(endDate);
 
-    // Fetch usage data for all product families
+    // If we have individual services, calculate based on them
+    if (services && services.length > 0) {
+      let totalCurrentCost = 0;
+      const allTrends: number[] = [];
+      let totalThreshold = 0;
+
+      // Fetch usage for each service and calculate cost
+      const usagePromises = services.map(async (service) => {
+        const mapping = getServiceMapping(service.service_key);
+        if (!mapping) {
+          return null;
+        }
+
+        try {
+          const usageData = await getUsageData(
+            credentials,
+            mapping.productFamily,
+            startHr,
+            endHr,
+            organizationId,
+          );
+
+          if (usageData?.error) {
+            return null;
+          }
+
+          // Extract usage using the service-specific function
+          const usage = mapping.extractUsage(usageData);
+          const committed = Number(service.quantity) || 0;
+          const listPrice = Number(service.list_price) || 0;
+
+          // Calculate cost: usage * list_price (for usage-based services)
+          // For host-based services, cost is based on number of hosts used
+          let serviceCost = 0;
+          if (service.unit.includes('host') || service.unit.includes('function') || service.unit.includes('Committer')) {
+            // Host/function-based: cost = usage * list_price
+            serviceCost = usage * listPrice;
+          } else {
+            // Usage-based: cost = usage * list_price per unit
+            serviceCost = usage * listPrice;
+          }
+
+          totalCurrentCost += serviceCost;
+
+          // Extract timeseries for trend
+          let timeseriesData: any = null;
+          if (usageData?.data && Array.isArray(usageData.data)) {
+            timeseriesData = usageData;
+          } else if (usageData?.usage && Array.isArray(usageData.usage) && usageData.usage.length > 0) {
+            timeseriesData = usageData.usage[0]?.timeseries || usageData.usage;
+          } else if (usageData?.timeseries) {
+            timeseriesData = usageData.timeseries;
+          }
+
+          const trend = extractTrendFromTimeseries(timeseriesData, 7);
+          allTrends.push(...trend);
+
+          // Add to threshold
+          const threshold = service.threshold !== null && service.threshold !== undefined
+            ? Number(service.threshold) * listPrice
+            : committed * 0.9 * listPrice;
+          totalThreshold += threshold;
+
+          return { serviceCost, trend, usage, committed };
+        } catch (error) {
+          return null;
+        }
+      });
+
+      await Promise.all(usagePromises);
+
+      // Calculate projected spend (based on trend and list prices)
+      const avgTrend = allTrends.length > 0
+        ? allTrends.reduce((sum, t) => sum + t, 0) / allTrends.length
+        : 0;
+      const projectedSpend = contractedSpend > 0
+        ? calculateProjection([totalCurrentCost * (1 + avgTrend / 100)], 30)
+        : 0;
+
+      // Calculate utilization
+      const utilization = contractedSpend > 0
+        ? calculateUtilization(totalCurrentCost, contractedSpend)
+        : 0;
+
+      // Calculate runway
+      const runway = contractedSpend > 0
+        ? calculateRunway(totalCurrentCost, contractedSpend, allTrends)
+        : Infinity;
+
+      // Calculate overage risk
+      const overageRisk = calculateOverageRisk(
+        totalCurrentCost,
+        totalThreshold,
+        contractedSpend,
+        allTrends,
+      );
+
+      // Determine overall status
+      const status =
+        utilization >= 95
+          ? ('critical' as const)
+          : utilization >= 70
+            ? ('watch' as const)
+            : ('ok' as const);
+
+      return NextResponse.json(
+        {
+          contractedSpend,
+          projectedSpend,
+          utilization,
+          runway: runway === Infinity ? null : runway,
+          overageRisk,
+          status,
+        },
+        { status: 200 },
+      );
+    }
+
+    // Fallback to product families approach (backward compatibility)
     const productFamilies = [
       'logs',
       'apm',

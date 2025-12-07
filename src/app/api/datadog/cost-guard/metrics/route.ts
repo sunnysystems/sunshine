@@ -7,16 +7,20 @@ import {
   formatDatadogHour,
   getDatadogCredentials,
   getMultipleUsageData,
+  getUsageData,
   getOrganizationIdFromTenant,
   DatadogRateLimitError,
 } from '@/lib/datadog/client';
 import {
   calculateProjection,
   calculateTotalUsage,
+  calculateUtilization,
   determineStatus,
   extractTrendFromTimeseries,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
+import { getServiceMapping, SERVICE_MAPPINGS } from '@/lib/datadog/cost-guard/service-mapping';
+import type { ServiceUsage } from '@/lib/datadog/cost-guard/types';
 import { debugApi, logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
@@ -117,12 +121,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get contract configuration for committed values
+    // Get contract configuration
     const { data: config } = await supabaseAdmin
       .from('datadog_cost_guard_config')
       .select('*')
       .eq('organization_id', organizationId)
       .single();
+
+    // Get individual services from the contract
+    const { data: services } = await supabaseAdmin
+      .from('datadog_cost_guard_services')
+      .select('*')
+      .eq('config_id', config?.id || '')
+      .order('service_name');
 
     // Get Datadog credentials
     const credentials = await getDatadogCredentials(organizationId);
@@ -144,7 +155,141 @@ export async function GET(request: NextRequest) {
     const startHr = formatDatadogHour(startDate);
     const endHr = formatDatadogHour(endDate);
 
-    // Fetch usage data for all product families in parallel
+    // If we have individual services, use them; otherwise fall back to product families
+    if (services && services.length > 0) {
+      debugApi('Fetching Datadog Usage Metrics (Individual Services)', {
+        organizationId,
+        tenant,
+        serviceCount: services.length,
+        dateRange: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          startHr,
+          endHr,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      const fetchStartTime = Date.now();
+      const serviceUsages: ServiceUsage[] = [];
+
+      // Fetch usage for each service in parallel
+      const usagePromises = services.map(async (service) => {
+        const mapping = getServiceMapping(service.service_key);
+        if (!mapping) {
+          debugApi(`No mapping found for service: ${service.service_key}`, {
+            serviceKey: service.service_key,
+            serviceName: service.service_name,
+            timestamp: new Date().toISOString(),
+          });
+          return null;
+        }
+
+        try {
+          const usageData = await getUsageData(
+            credentials,
+            mapping.productFamily,
+            startHr,
+            endHr,
+            organizationId,
+          );
+
+          if (usageData?.error) {
+            debugApi(`Error fetching usage for service ${service.service_key}`, {
+              serviceKey: service.service_key,
+              error: usageData.error,
+              timestamp: new Date().toISOString(),
+            });
+            return null;
+          }
+
+          // Extract usage using the service-specific function
+          let totalUsage = mapping.extractUsage(usageData);
+
+          // Extract timeseries for trend calculation
+          let timeseriesData: any = null;
+          if (usageData?.data && Array.isArray(usageData.data)) {
+            timeseriesData = usageData;
+          } else if (usageData?.usage && Array.isArray(usageData.usage) && usageData.usage.length > 0) {
+            timeseriesData = usageData.usage[0]?.timeseries || usageData.usage;
+          } else if (usageData?.timeseries) {
+            timeseriesData = usageData.timeseries;
+          }
+
+          const trend = extractTrendFromTimeseries(timeseriesData, 7);
+          const committed = Number(service.quantity) || 0;
+          const threshold = service.threshold !== null && service.threshold !== undefined
+            ? Number(service.threshold)
+            : committed * 0.9;
+
+          const projected = calculateProjection(trend.map((t) => totalUsage * (t / 100)), 30);
+          const status = determineStatus(totalUsage, committed, threshold);
+          const utilization = calculateUtilization(totalUsage, committed);
+
+          return {
+            serviceKey: service.service_key,
+            serviceName: service.service_name,
+            usage: totalUsage,
+            committed,
+            threshold,
+            projected,
+            trend,
+            status,
+            category: mapping.category,
+            unit: service.unit,
+            utilization,
+          } as ServiceUsage;
+        } catch (error) {
+          debugApi(`Error processing service ${service.service_key}`, {
+            serviceKey: service.service_key,
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+          });
+          return null;
+        }
+      });
+
+      const results = await Promise.all(usagePromises);
+      const validResults = results.filter((r): r is ServiceUsage => r !== null);
+      serviceUsages.push(...validResults);
+
+      const fetchDuration = Date.now() - fetchStartTime;
+
+      debugApi('Datadog Usage Metrics Fetched (Individual Services)', {
+        organizationId,
+        tenant,
+        duration: `${fetchDuration}ms`,
+        servicesRequested: services.length,
+        servicesWithData: validResults.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      return NextResponse.json(
+        {
+          metrics: [], // Keep for backward compatibility
+          services: serviceUsages,
+          period: {
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+          },
+        },
+        { status: 200 },
+      );
+    }
+
+    // Fallback to product families approach (backward compatibility)
+    debugApi('Fetching Datadog Usage Metrics (Product Families - Fallback)', {
+      organizationId,
+      tenant,
+      dateRange: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        startHr,
+        endHr,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
     const productFamilies = [
       'logs',
       'apm',
@@ -156,19 +301,6 @@ export async function GET(request: NextRequest) {
       'ci_visibility',
     ];
 
-    debugApi('Fetching Datadog Usage Metrics', {
-      organizationId,
-      tenant,
-      productFamilies,
-      dateRange: {
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
-        startHr,
-        endHr,
-      },
-      timestamp: new Date().toISOString(),
-    });
-
     const fetchStartTime = Date.now();
     const usageData = await getMultipleUsageData(
       credentials,
@@ -179,7 +311,7 @@ export async function GET(request: NextRequest) {
     );
     const fetchDuration = Date.now() - fetchStartTime;
 
-    debugApi('Datadog Usage Metrics Fetched', {
+    debugApi('Datadog Usage Metrics Fetched (Product Families)', {
       organizationId,
       tenant,
       duration: `${fetchDuration}ms`,
@@ -203,7 +335,6 @@ export async function GET(request: NextRequest) {
       }
 
       if (data.error) {
-        // Skip metrics with errors, but log them with details
         debugApi(`Error fetching Datadog usage for ${productFamily}`, {
           productFamily,
           metricKey,
@@ -214,12 +345,9 @@ export async function GET(request: NextRequest) {
           dateRange: { startHr, endHr },
           timestamp: new Date().toISOString(),
         });
-        // Continue to next metric instead of skipping entirely
-        // This allows other metrics to still be displayed
         continue;
       }
 
-      // Check if data structure is valid (v2 format has 'data', v1 has 'usage' or 'timeseries')
       if (!data || (!data.data && !data.usage && !data.timeseries)) {
         debugApi(`No usage data structure for ${productFamily}`, {
           productFamily,
@@ -237,43 +365,32 @@ export async function GET(request: NextRequest) {
 
       let totalUsage = calculateTotalUsage(data);
       
-      // Convert logs from bytes to GB
       if (productFamily === 'logs' || metricKey === 'logsIngested') {
         totalUsage = bytesToGB(totalUsage);
       }
       
-      // Extract timeseries data - handle v2 and legacy v1 response formats
       let timeseriesData: any = null;
       if (data?.data && Array.isArray(data.data)) {
-        // v2 API format: pass the entire response object
         timeseriesData = data;
       } else if (data?.usage && Array.isArray(data.usage) && data.usage.length > 0) {
-        // v1 format: /usage/{product}
         timeseriesData = data.usage[0]?.timeseries || data.usage;
       } else if (data?.timeseries) {
-        // v1 format: /usage/timeseries
         timeseriesData = data.timeseries;
       }
       
       const trend = extractTrendFromTimeseries(timeseriesData, 7);
 
-      // Get committed value from contract config or use default
-      const productFamilies = (config?.product_families as Record<string, any>) || {};
-      const productFamilyConfig = productFamilies[productFamily] as
+      const productFamiliesConfig = (config?.product_families as Record<string, any>) || {};
+      const productFamilyConfig = productFamiliesConfig[productFamily] as
         | { committed?: number; threshold?: number }
         | undefined;
       const thresholds = (config?.thresholds as Record<string, number>) || {};
       
-      // For logs, values from contract are assumed to be in GB
-      // Usage from API is converted from bytes to GB above
-      let committed = productFamilyConfig?.committed || 1000; // Default in GB for logs
+      let committed = productFamilyConfig?.committed || 1000;
       let threshold =
         productFamilyConfig?.threshold ||
         thresholds[productFamily] ||
-        committed * 0.9; // Default 90% threshold
-
-      // Note: committed and threshold are already in GB for logs (as configured by user)
-      // Only usage was converted from bytes to GB above
+        committed * 0.9;
 
       const projected = calculateProjection(trend.map((t) => totalUsage * (t / 100)), 30);
       const status = determineStatus(totalUsage, committed, threshold);
@@ -294,6 +411,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         metrics,
+        services: [], // Empty for backward compatibility
         period: {
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
