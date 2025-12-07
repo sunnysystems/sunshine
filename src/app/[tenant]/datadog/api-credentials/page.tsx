@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 
 import { CredentialForm } from '@/components/datadog/settings/CredentialForm';
-import { MockNotice } from '@/components/datadog/shared/MockNotice';
 import { authOptions } from '@/lib/auth';
 import { checkTenantAccess } from '@/lib/tenant';
 
@@ -34,7 +33,6 @@ export default async function DatadogApiCredentialsPage({
 
   return (
     <div className="space-y-6">
-      <MockNotice />
       <CredentialForm tenant={tenant} />
     </div>
   );

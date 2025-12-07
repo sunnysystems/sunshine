@@ -244,6 +244,29 @@ export interface Database {
           created_at?: string;
         };
       };
+      datadog_credentials_metadata: {
+        Row: {
+          id: string;
+          organization_id: string;
+          updated_at: string;
+          updated_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          updated_at?: string;
+          updated_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+          created_at?: string;
+        };
+      };
     };
   };
 }

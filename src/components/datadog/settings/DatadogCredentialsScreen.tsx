@@ -29,8 +29,27 @@ export function DatadogCredentialsScreen({
       return;
     }
 
-    const existing = loadDatadogCredentials(tenant);
-    setCredentials(existing);
+    let cancelled = false;
+
+    async function loadCredentials() {
+      try {
+        const existing = await loadDatadogCredentials(tenant);
+        if (!cancelled) {
+          setCredentials(existing);
+        }
+      } catch (error) {
+        // If credentials don't exist or user doesn't have access, set to null
+        if (!cancelled) {
+          setCredentials(null);
+        }
+      }
+    }
+
+    loadCredentials();
+
+    return () => {
+      cancelled = true;
+    };
   }, [tenant]);
 
   return (

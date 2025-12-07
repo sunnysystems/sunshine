@@ -2,6 +2,19 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { AlertCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -28,7 +41,7 @@ interface CredentialFormProps {
 }
 
 export function CredentialForm({ tenant }: CredentialFormProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { refresh } = useDatadogSuiteAvailability(tenant);
 
   const [apiKey, setApiKey] = useState('');
@@ -36,17 +49,37 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [notes, setNotes] = useState('');
+  const [isRemoving, setIsRemoving] = useState(false);
 
   useEffect(() => {
-    const stored = loadDatadogCredentials(tenant);
-    if (stored) {
-      setApiKey(stored.apiKey);
-      setAppKey(stored.appKey);
-      setUpdatedAt(stored.updatedAt);
+    let cancelled = false;
+
+    async function loadStored() {
+      try {
+        const stored = await loadDatadogCredentials(tenant);
+        if (!cancelled && stored) {
+          setApiKey(stored.apiKey);
+          setAppKey(stored.appKey);
+          setUpdatedAt(stored.updatedAt);
+        }
+      } catch {
+        // If credentials don't exist or user doesn't have access, leave empty
+        if (!cancelled) {
+          setApiKey('');
+          setAppKey('');
+          setUpdatedAt(null);
+        }
+      }
     }
+
+    loadStored();
+
+    return () => {
+      cancelled = true;
+    };
   }, [tenant]);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!apiKey.trim() || !appKey.trim()) {
       setStatus('error');
@@ -55,7 +88,7 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
 
     try {
       setStatus('saving');
-      const payload = persistDatadogCredentials(
+      const payload = await persistDatadogCredentials(
         tenant,
         apiKey.trim(),
         appKey.trim(),
@@ -63,19 +96,42 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
       setUpdatedAt(payload.updatedAt);
       setStatus('saved');
       refresh();
-    } catch {
+    } catch (error) {
       setStatus('error');
+      // eslint-disable-next-line no-console
+      console.error('Failed to save credentials:', error);
     }
   };
 
   const onReset = () => {
-    removeDatadogCredentials(tenant);
+    // Clear form fields only (doesn't remove from server)
     setApiKey('');
     setAppKey('');
-    setUpdatedAt(null);
+    setNotes('');
     setStatus('idle');
-    refresh();
   };
+
+  const handleRemove = async () => {
+    setIsRemoving(true);
+    try {
+      await removeDatadogCredentials(tenant);
+      setApiKey('');
+      setAppKey('');
+      setNotes('');
+      setUpdatedAt(null);
+      setStatus('idle');
+      refresh();
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to remove credentials:', error);
+      setStatus('error');
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  // Check if credentials are saved (have updatedAt timestamp)
+  const hasCredentials = updatedAt !== null;
 
   return (
     <Card className="max-w-3xl">
@@ -132,15 +188,80 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
             />
           </div>
 
+          {status === 'saving' && (
+            <Alert>
+              <AlertCircle className="h-4 w-4 animate-pulse" />
+              <AlertTitle>{t('datadog.credentials.validatingTitle')}</AlertTitle>
+              <AlertDescription>
+                {t('datadog.credentials.validatingMessage')}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={status === 'saving'}>
+            <Button type="submit" disabled={status === 'saving' || isRemoving}>
               {status === 'saving'
                 ? t('datadog.apiCredentials.saving')
                 : t('datadog.apiCredentials.saveCta')}
             </Button>
-            <Button type="button" variant="outline" onClick={onReset}>
+            
+            {hasCredentials && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={isRemoving || status === 'saving'}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t('datadog.credentials.removeButton') === 'datadog.credentials.removeButton' 
+                      ? (language === 'pt-BR' ? 'Remover credenciais' : 'Remove credentials')
+                      : t('datadog.credentials.removeButton')}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {t('datadog.credentials.removeDialogTitle') === 'datadog.credentials.removeDialogTitle'
+                        ? (language === 'pt-BR' ? 'Remover credenciais armazenadas?' : 'Remove stored credentials?')
+                        : t('datadog.credentials.removeDialogTitle')}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('datadog.credentials.removeDialogDescription') === 'datadog.credentials.removeDialogDescription'
+                        ? (language === 'pt-BR' 
+                          ? 'Isso remove as chaves Datadog do Supabase Vault para esta organização.'
+                          : 'This removes the Datadog API and application keys from Supabase Vault for this organization.')
+                        : t('datadog.credentials.removeDialogDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>
+                      {t('common.cancel') === 'common.cancel'
+                        ? (language === 'pt-BR' ? 'Cancelar' : 'Cancel')
+                        : t('common.cancel')}
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleRemove}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {t('datadog.credentials.removeConfirm') === 'datadog.credentials.removeConfirm'
+                        ? (language === 'pt-BR' ? 'Sim, remover credenciais' : 'Yes, remove credentials')
+                        : t('datadog.credentials.removeConfirm')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onReset}
+              disabled={status === 'saving' || isRemoving}
+            >
               {t('datadog.apiCredentials.reset')}
             </Button>
+            
             <p className="text-sm text-muted-foreground">
               {t('datadog.apiCredentials.help')}
             </p>

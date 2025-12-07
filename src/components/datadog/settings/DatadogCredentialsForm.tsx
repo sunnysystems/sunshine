@@ -56,7 +56,7 @@ export function DatadogCredentialsForm({
   onCredentialsSaved,
   onCredentialsRemoved,
 }: DatadogCredentialsFormProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [apiKey, setApiKey] = useState('');
   const [appKey, setAppKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -72,7 +72,7 @@ export function DatadogCredentialsForm({
     setFeedback(null);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     resetFeedback();
 
@@ -89,7 +89,7 @@ export function DatadogCredentialsForm({
 
     setIsSaving(true);
     try {
-      const payload = persistDatadogCredentials(
+      const payload = await persistDatadogCredentials(
         tenant,
         trimmedApiKey,
         trimmedAppKey,
@@ -101,29 +101,35 @@ export function DatadogCredentialsForm({
       setApiKey('');
       setAppKey('');
       onCredentialsSaved(payload);
-    } catch {
+    } catch (error) {
       setFeedback({
         type: 'error',
-        message: t('common.error'),
+        message:
+          error instanceof Error
+            ? error.message
+            : t('common.error'),
       });
     } finally {
       setIsSaving(false);
     }
   }
 
-  function handleRemove() {
+  async function handleRemove() {
     setIsRemoving(true);
     try {
-      removeDatadogCredentials(tenant);
+      await removeDatadogCredentials(tenant);
       setFeedback({
         type: 'removed',
         message: t('datadog.credentials.removed'),
       });
       onCredentialsRemoved();
-    } catch {
+    } catch (error) {
       setFeedback({
         type: 'error',
-        message: t('common.error'),
+        message:
+          error instanceof Error
+            ? error.message
+            : t('common.error'),
       });
     } finally {
       setIsRemoving(false);
@@ -202,6 +208,16 @@ export function DatadogCredentialsForm({
             </p>
           ) : null}
 
+          {isSaving && (
+            <Alert>
+              <AlertCircle className="h-4 w-4 animate-pulse" />
+              <AlertTitle>{t('datadog.credentials.validatingTitle')}</AlertTitle>
+              <AlertDescription>
+                {t('datadog.credentials.validatingMessage')}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Button type="submit" disabled={isSaving}>
               {isSaving
@@ -218,22 +234,36 @@ export function DatadogCredentialsForm({
                     disabled={isRemoving}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
-                    {t('datadog.credentials.removeButton')}
+                    {t('datadog.credentials.removeButton') === 'datadog.credentials.removeButton'
+                      ? (language === 'pt-BR' ? 'Remover credenciais' : 'Remove credentials')
+                      : t('datadog.credentials.removeButton')}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      {t('datadog.credentials.removeDialogTitle')}
+                      {t('datadog.credentials.removeDialogTitle') === 'datadog.credentials.removeDialogTitle'
+                        ? (language === 'pt-BR' ? 'Remover credenciais armazenadas?' : 'Remove stored credentials?')
+                        : t('datadog.credentials.removeDialogTitle')}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      {t('datadog.credentials.removeDialogDescription')}
+                      {t('datadog.credentials.removeDialogDescription') === 'datadog.credentials.removeDialogDescription'
+                        ? (language === 'pt-BR'
+                          ? 'Isso remove as chaves Datadog do Supabase Vault para esta organização.'
+                          : 'This removes the Datadog API and application keys from Supabase Vault for this organization.')
+                        : t('datadog.credentials.removeDialogDescription')}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogCancel>
+                      {t('common.cancel') === 'common.cancel'
+                        ? (language === 'pt-BR' ? 'Cancelar' : 'Cancel')
+                        : t('common.cancel')}
+                    </AlertDialogCancel>
                     <AlertDialogAction onClick={handleRemove}>
-                      {t('datadog.credentials.removeConfirm')}
+                      {t('datadog.credentials.removeConfirm') === 'datadog.credentials.removeConfirm'
+                        ? (language === 'pt-BR' ? 'Sim, remover credenciais' : 'Yes, remove credentials')
+                        : t('datadog.credentials.removeConfirm')}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
