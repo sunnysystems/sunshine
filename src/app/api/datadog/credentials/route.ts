@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getServerSession } from 'next-auth/next';
 
+import { logAuditEvent } from '@/lib/audit-logger';
 import { validateDatadogCredentials } from '@/lib/datadog/validation';
 import {
   deleteCredentialFromVault,
@@ -90,6 +91,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if credentials already exist to determine if this is create or update
+    const existingApiKey = await getCredentialFromVault(org.id, 'api');
+    const isUpdate = existingApiKey !== null;
+    const action = isUpdate ? 'datadog.credentials.update' : 'datadog.credentials.create';
+
     // Store credentials in vault
     await storeCredentialInVault(org.id, 'api', apiKey);
     await storeCredentialInVault(org.id, 'app', appKey);
@@ -117,6 +123,20 @@ export async function POST(request: NextRequest) {
     } catch {
       // Metadata table might not exist, that's okay
     }
+
+    // Log audit event
+    await logAuditEvent({
+      organizationId: org.id,
+      actorId: session.user.id,
+      action,
+      targetType: 'datadog_credentials',
+      targetId: org.id,
+      metadata: {
+        operation: isUpdate ? 'update' : 'create',
+        validated: true,
+      },
+      request,
+    });
 
     return NextResponse.json(
       {
@@ -285,6 +305,19 @@ export async function DELETE(request: NextRequest) {
     } catch {
       // Metadata table might not exist, that's okay
     }
+
+    // Log audit event
+    await logAuditEvent({
+      organizationId: org.id,
+      actorId: session.user.id,
+      action: 'datadog.credentials.delete',
+      targetType: 'datadog_credentials',
+      targetId: org.id,
+      metadata: {
+        operation: 'delete',
+      },
+      request,
+    });
 
     return NextResponse.json(
       { success: true, message: 'Datadog credentials removed successfully' },

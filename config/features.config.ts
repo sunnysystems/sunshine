@@ -79,6 +79,107 @@ export const featuresConfig: Record<string, FeatureConfig> = {
       'Datadog-focused observability, automation, and FinOps workflows',
     dependencies: ['auth', 'multiTenant', 'userManagement'],
   },
+  // Datadog Observability features
+  datadogCostGuard: {
+    enabled: true,
+    name: 'Datadog Cost Guard',
+    description: 'Cost Guard observability feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogStatusPages: {
+    enabled: true,
+    name: 'Datadog Status Pages',
+    description: 'Custom Status Pages feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogSynthetics: {
+    enabled: true,
+    name: 'Datadog Synthetics',
+    description: 'External Synthetics feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogLogFilters: {
+    enabled: true,
+    name: 'Datadog Log Filters',
+    description: 'Log Exclusion Filters feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogBusinessObservability: {
+    enabled: true,
+    name: 'Datadog Business Observability',
+    description: 'Business Observability feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogCorrelationStories: {
+    enabled: true,
+    name: 'Datadog Correlation Stories',
+    description: 'Correlation Stories feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogObservabilityMaturity: {
+    enabled: true,
+    name: 'Datadog Observability Maturity',
+    description: 'Observability Maturity feature',
+    dependencies: ['datadogSuite'],
+  },
+  // Datadog Automation features
+  datadogAiAssistant: {
+    enabled: true,
+    name: 'Datadog AI Assistant',
+    description: 'Natural Language Queries / AI Assistant feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogPerformanceRemediation: {
+    enabled: true,
+    name: 'Datadog Performance Remediation',
+    description: 'Profiler Remediation feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogErrorAutofix: {
+    enabled: true,
+    name: 'Datadog Error Autofix',
+    description: 'Error Auto-fix feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogCostInsights: {
+    enabled: true,
+    name: 'Datadog Cost Insights',
+    description: 'AI Cost Insights feature',
+    dependencies: ['datadogSuite'],
+  },
+  // Datadog Communications features
+  datadogCommunications: {
+    enabled: true,
+    name: 'Datadog Communications',
+    description: 'Channel Integrations feature',
+    dependencies: ['datadogSuite'],
+  },
+  // Datadog FinOps features
+  datadogFinopsForecast: {
+    enabled: true,
+    name: 'Datadog FinOps Forecast',
+    description: 'Predictive FinOps feature',
+    dependencies: ['datadogSuite'],
+  },
+  // Datadog Cost Guard sub-features
+  datadogCostGuardContract: {
+    enabled: true,
+    name: 'Datadog Cost Guard Contract',
+    description: 'Contract Overview feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogCostGuardMetrics: {
+    enabled: true,
+    name: 'Datadog Cost Guard Metrics',
+    description: 'Metrics & Projections feature',
+    dependencies: ['datadogSuite'],
+  },
+  datadogCostGuardActions: {
+    enabled: true,
+    name: 'Datadog Cost Guard Actions',
+    description: 'Playbooks & Alerts feature',
+    dependencies: ['datadogSuite'],
+  },
 };
 
 export const getEnabledFeatures = (): string[] => {
