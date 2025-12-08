@@ -344,6 +344,7 @@ function extractAPITests(data: any): number {
           if (
             measurement.usage_type === 'api_tests' ||
             measurement.usage_type === 'synthetics_api' ||
+            measurement.usage_type === 'check_calls_count' ||
             (measurement.usage_type?.includes('api') && measurement.usage_type?.includes('test'))
           ) {
             total += measurement.value || 0;
@@ -751,6 +752,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
       return (usageType: string) =>
         usageType === 'api_tests' ||
         usageType === 'synthetics_api' ||
+        usageType === 'check_calls_count' ||
         (usageType?.includes('api') && usageType?.includes('test'));
     
     case 'rum_session_replay':
