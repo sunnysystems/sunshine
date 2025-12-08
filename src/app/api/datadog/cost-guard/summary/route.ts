@@ -21,7 +21,7 @@ import {
   extractTrendFromTimeseries,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
-import { getServiceMapping } from '@/lib/datadog/cost-guard/service-mapping';
+import { getServiceMapping, getUsageTypeFilter } from '@/lib/datadog/cost-guard/service-mapping';
 import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
@@ -228,7 +228,9 @@ export async function GET(request: NextRequest) {
             timeseriesData = usageData.timeseries;
           }
 
-          const trend = extractTrendFromTimeseries(timeseriesData, 7);
+          // Get usage_type filter for this specific service to ensure trend only includes this service's data
+          const usageTypeFilter = getUsageTypeFilter(service.service_key);
+          const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
           allTrends.push(...trend);
 
           // Add to threshold

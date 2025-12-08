@@ -177,10 +177,15 @@ export function determineStatus(
 /**
  * Extract trend data from Datadog usage timeseries
  * Handles multiple timeseries formats
+ * @param timeseries - The timeseries data from Datadog API
+ * @param days - Number of days to extract (default: 7)
+ * @param usageTypeFilter - Optional filter function to filter measurements by usage_type
+ *                          If provided, only measurements matching the filter will be included
  */
 export function extractTrendFromTimeseries(
   timeseries: any,
   days: number = 7,
+  usageTypeFilter?: (usageType: string) => boolean,
 ): number[] {
   if (!timeseries) {
     return [];
@@ -193,9 +198,13 @@ export function extractTrendFromTimeseries(
     for (const hourlyUsage of timeseries.data) {
       const timestamp = hourlyUsage.attributes?.timestamp;
       if (timestamp && hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        // Sum all measurements for this hour
+        // Sum measurements for this hour, applying filter if provided
         let hourTotal = 0;
         for (const measurement of hourlyUsage.attributes.measurements) {
+          // Apply usage_type filter if provided
+          if (usageTypeFilter && !usageTypeFilter(measurement.usage_type)) {
+            continue; // Skip measurements that don't match the filter
+          }
           if (typeof measurement.value === 'number') {
             hourTotal += measurement.value;
           }

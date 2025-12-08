@@ -672,3 +672,114 @@ export function getServicesByCategory(category: ServiceMapping['category']): Ser
   return Object.values(SERVICE_MAPPINGS).filter((service) => service.category === category);
 }
 
+/**
+ * Get usage_type filter function for a specific service
+ * Returns a filter function that matches the same usage_type conditions used by the service's extractUsage function
+ * This ensures trend data only includes measurements for the specific service, not consolidated metrics
+ */
+export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => boolean) | undefined {
+  switch (serviceKey) {
+    case 'infra_host_enterprise':
+      return (usageType: string) =>
+        usageType === 'infra_host_enterprise' ||
+        usageType === 'infra_host_enterprise_usage' ||
+        (usageType?.includes('enterprise') && usageType?.includes('host'));
+    
+    case 'containers':
+      return (usageType: string) =>
+        usageType === 'containers' ||
+        usageType?.includes('container');
+    
+    case 'database_monitoring':
+      return (usageType: string) =>
+        usageType === 'database_monitoring' ||
+        usageType?.includes('database');
+    
+    case 'serverless_workload_monitoring':
+      return (usageType: string) =>
+        usageType === 'serverless_functions' ||
+        usageType?.includes('serverless') && !usageType?.includes('apm');
+    
+    case 'serverless_functions_apm':
+      return (usageType: string) =>
+        usageType === 'serverless_apm_invocations' ||
+        (usageType?.includes('serverless') && usageType?.includes('apm'));
+    
+    case 'apm_enterprise':
+      return (usageType: string) =>
+        usageType === 'apm_host_enterprise' ||
+        usageType === 'apm_enterprise' ||
+        (usageType?.includes('apm') && usageType?.includes('enterprise'));
+    
+    case 'indexed_spans':
+      return (usageType: string) =>
+        usageType === 'indexed_spans' ||
+        usageType === 'analyzed_spans' ||
+        usageType?.includes('indexed');
+    
+    case 'ingested_spans':
+      return (usageType: string) =>
+        usageType === 'ingested_spans' ||
+        usageType === 'span_ingestion' ||
+        (usageType?.includes('ingested') && usageType?.includes('span'));
+    
+    case 'log_events':
+      return (usageType: string) =>
+        usageType === 'indexed_logs' ||
+        usageType === 'log_events' ||
+        (usageType?.includes('indexed') && usageType?.includes('log'));
+    
+    case 'log_ingestion':
+      return (usageType: string) =>
+        usageType === 'ingested_logs' ||
+        usageType === 'log_ingestion' ||
+        (usageType?.includes('ingested') && usageType?.includes('log'));
+    
+    case 'llm_observability':
+      return (usageType: string) =>
+        usageType === 'llm_requests' ||
+        usageType === 'llm_observability' ||
+        usageType?.includes('llm');
+    
+    case 'browser_tests':
+      return (usageType: string) =>
+        usageType === 'browser_tests' ||
+        usageType === 'synthetics_browser' ||
+        usageType?.includes('browser');
+    
+    case 'api_tests':
+      return (usageType: string) =>
+        usageType === 'api_tests' ||
+        usageType === 'synthetics_api' ||
+        (usageType?.includes('api') && usageType?.includes('test'));
+    
+    case 'rum_session_replay':
+      return (usageType: string) =>
+        usageType === 'rum_session_replay' ||
+        usageType === 'session_replay' ||
+        usageType?.includes('replay');
+    
+    case 'rum_browser_sessions':
+      return (usageType: string) =>
+        usageType === 'rum_sessions' ||
+        usageType === 'browser_sessions' ||
+        usageType === 'mobile_sessions' ||
+        (usageType?.includes('rum') && !usageType?.includes('replay'));
+    
+    case 'cloud_siem_indexed':
+      return (usageType: string) =>
+        usageType === 'siem_indexed' ||
+        usageType === 'cloud_siem' ||
+        usageType?.includes('siem');
+    
+    case 'code_security_bundle':
+      return (usageType: string) =>
+        usageType?.includes('code_security') ||
+        usageType?.includes('committer');
+    
+    default:
+      // For services without specific filters, return undefined (will use all measurements)
+      return undefined;
+  }
+}
+

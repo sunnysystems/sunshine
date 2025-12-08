@@ -20,7 +20,7 @@ import {
   extractTrendFromTimeseries,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
-import { getServiceMapping, SERVICE_MAPPINGS } from '@/lib/datadog/cost-guard/service-mapping';
+import { getServiceMapping, SERVICE_MAPPINGS, getUsageTypeFilter } from '@/lib/datadog/cost-guard/service-mapping';
 import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import type { ServiceUsage } from '@/lib/datadog/cost-guard/types';
 import { debugApi, logError } from '@/lib/debug';
@@ -314,7 +314,9 @@ export async function GET(request: NextRequest) {
             timeseriesData = usageData.timeseries;
           }
 
-          const trend = extractTrendFromTimeseries(timeseriesData, 7);
+          // Get usage_type filter for this specific service to ensure trend only includes this service's data
+          const usageTypeFilter = getUsageTypeFilter(service.service_key);
+          const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
           const committed = Number(service.quantity) || 0;
           const threshold = service.threshold !== null && service.threshold !== undefined
             ? Number(service.threshold)
