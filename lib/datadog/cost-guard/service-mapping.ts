@@ -141,6 +141,7 @@ function extractServerlessFunctions(data: any): number {
  */
 function extractAPMEnterprise(data: any): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'apm_host_count' ||
     usageType === 'apm_host_enterprise' ||
     usageType === 'apm_enterprise_hosts' ||
     (usageType?.includes('apm') && usageType?.includes('enterprise'))
@@ -530,8 +531,8 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   apm_enterprise: {
     serviceKey: 'apm_enterprise',
     serviceName: 'APM Enterprise',
-    productFamily: 'indexed_spans',
-    usageType: 'apm_host_enterprise',
+    productFamily: 'infra_hosts',
+    usageType: 'apm_host_count',
     unit: 'hosts',
     category: 'apm',
     apiEndpoint: '/api/v2/usage/hourly_usage',
@@ -708,6 +709,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'apm_enterprise':
       return (usageType: string) =>
+        usageType === 'apm_host_count' ||
         usageType === 'apm_host_enterprise' ||
         usageType === 'apm_enterprise' ||
         (usageType?.includes('apm') && usageType?.includes('enterprise'));
