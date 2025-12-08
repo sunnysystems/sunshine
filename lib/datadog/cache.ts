@@ -116,7 +116,7 @@ export function generateDayCacheKey(
 /**
  * Get TTL for a day based on whether it's in the past or today
  * - Past days: 30 days TTL (data won't change)
- * - Today: 1 hour TTL (data may still be updating)
+ * - Today: 24 hours TTL (data may still be updating, but doesn't need to be refreshed every hour)
  * 
  * Note: Uses UTC to match splitIntoDays() which generates dates in UTC
  */
@@ -143,8 +143,8 @@ export function getTTLForDay(date: string): number {
     return 30 * 24 * 60 * 60; // 30 days
   }
   
-  // If it's today, cache for 1 hour (data may still be updating)
-  return 60 * 60; // 1 hour
+  // If it's today, cache for 24 hours (data may still be updating, but doesn't need frequent refreshes)
+  return 24 * 60 * 60; // 24 hours
 }
 
 /**
