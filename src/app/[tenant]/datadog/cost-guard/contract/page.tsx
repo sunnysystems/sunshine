@@ -163,10 +163,11 @@ export default function CostGuardContractPage() {
         const errorResponse = contractRes.status === 429 ? contractRes : summaryRes;
         const errorData = await errorResponse.json().catch(() => ({
           message: t('datadog.costGuard.api.rateLimit.title'),
-          retryAfter: 60,
+          retryAfter: null,
         }));
         setRateLimitError(true);
-        setRetryAfter(errorData.retryAfter || 60);
+        // Use retryAfter from response, or default to 30 seconds if not provided
+        setRetryAfter(errorData.retryAfter !== null && errorData.retryAfter !== undefined ? errorData.retryAfter : 30);
         setError(errorData.message || t('datadog.costGuard.api.rateLimit.title'));
         setLoading(false);
         return;

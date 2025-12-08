@@ -29,11 +29,13 @@ export function ErrorState({
   );
 
   useEffect(() => {
-    if (!rateLimitError || !retryAfter) {
+    if (!rateLimitError) {
       return;
     }
 
-    setCountdown(retryAfter);
+    // If retryAfter is provided, use it; otherwise default to 30 seconds
+    const countdownValue = retryAfter !== null && retryAfter !== undefined ? retryAfter : 30;
+    setCountdown(countdownValue);
 
     const interval = setInterval(() => {
       setCountdown((prev) => {

@@ -32,7 +32,7 @@ export function ProgressIndicator({
         </span>
         <span className="font-medium">{progress}%</span>
       </div>
-      <Progress value={progress} className="h-2" />
+      <Progress value={progress} max={100} className="h-2" />
     </div>
   );
 }

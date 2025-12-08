@@ -117,13 +117,26 @@ export function generateDayCacheKey(
  * Get TTL for a day based on whether it's in the past or today
  * - Past days: 30 days TTL (data won't change)
  * - Today: 1 hour TTL (data may still be updating)
+ * 
+ * Note: Uses UTC to match splitIntoDays() which generates dates in UTC
  */
 export function getTTLForDay(date: string): number {
-  const dayDate = new Date(date);
-  dayDate.setHours(0, 0, 0, 0);
+  // Parse date string as UTC (format: "YYYY-MM-DD")
+  // new Date("YYYY-MM-DD") interprets as UTC midnight
+  const dayDate = new Date(`${date}T00:00:00Z`);
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Get today in UTC for comparison (consistent timezone)
+  // Create UTC date from current UTC time to avoid timezone mismatch
+  const now = new Date();
+  const today = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  ));
   
   // If the day already passed, cache for 30 days
   if (dayDate < today) {

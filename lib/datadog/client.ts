@@ -219,15 +219,32 @@ async function datadogRequest<T>(
     
     // Handle 429 Rate Limit errors specifically
     if (response.status === 429) {
+      // Try x-ratelimit-reset first (Datadog specific)
+      const rateLimitReset = response.headers.get('x-ratelimit-reset');
+      // Fallback to Retry-After (HTTP standard)
       const retryAfterHeader = response.headers.get('Retry-After');
-      const retryAfter = retryAfterHeader
-        ? parseInt(retryAfterHeader, 10)
-        : null;
+      
+      const retryAfter = rateLimitReset
+        ? parseInt(rateLimitReset, 10)
+        : retryAfterHeader
+          ? parseInt(retryAfterHeader, 10)
+          : null;
+      
+      // Also extract other rate limit headers for debugging
+      const rateLimitInfo = {
+        limit: response.headers.get('x-ratelimit-limit'),
+        remaining: response.headers.get('x-ratelimit-remaining'),
+        reset: response.headers.get('x-ratelimit-reset'),
+        period: response.headers.get('x-ratelimit-period'),
+        name: response.headers.get('x-ratelimit-name'),
+      };
 
       debugApi('Datadog API 429 Rate Limit', {
         ...errorDetails,
         retryAfter,
+        rateLimitReset,
         retryAfterHeader,
+        rateLimitInfo,
         message: 'Rate limit exceeded. Please wait before retrying.',
       });
 
@@ -275,6 +292,20 @@ async function datadogRequest<T>(
     duration: `${requestDuration}ms`,
     timestamp: new Date().toISOString(),
   });
+
+  // Extract and store rate limit information from headers
+  const rateLimitInfo = extractRateLimitFromHeaders(response.headers);
+  if (rateLimitInfo) {
+    rateLimitStore.set(rateLimitInfo.name, rateLimitInfo);
+    debugApi('Rate limit info updated', {
+      rateLimitName: rateLimitInfo.name,
+      limit: rateLimitInfo.limit,
+      remaining: rateLimitInfo.remaining,
+      reset: rateLimitInfo.reset,
+      period: rateLimitInfo.period,
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   return response.json() as Promise<T>;
 }
@@ -452,24 +483,120 @@ function splitIntoDays(startHr: string, endHr: string): string[] {
   const startDate = new Date(startHr);
   const endDate = new Date(endHr);
   
-  // Normalize to start of day
+  // Normalize to start of day in UTC
   const currentDay = new Date(startDate);
-  currentDay.setHours(0, 0, 0, 0);
+  currentDay.setUTCHours(0, 0, 0, 0);
   
   const endDay = new Date(endDate);
-  endDay.setHours(0, 0, 0, 0);
+  endDay.setUTCHours(0, 0, 0, 0);
   
   while (currentDay <= endDay) {
-    const year = currentDay.getFullYear();
-    const month = String(currentDay.getMonth() + 1).padStart(2, '0');
-    const day = String(currentDay.getDate()).padStart(2, '0');
+    // Use UTC methods to ensure consistent timezone handling
+    const year = currentDay.getUTCFullYear();
+    const month = String(currentDay.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(currentDay.getUTCDate()).padStart(2, '0');
     days.push(`${year}-${month}-${day}`);
     
-    // Move to next day
-    currentDay.setDate(currentDay.getDate() + 1);
+    // Move to next day in UTC
+    currentDay.setUTCDate(currentDay.getUTCDate() + 1);
   }
   
   return days;
+}
+
+/**
+ * Group consecutive days into chunks of specified maximum size
+ * @param days Array of date strings in YYYY-MM-DD format
+ * @param maxDaysPerChunk Maximum number of days per chunk (default: 14)
+ * @returns Array of arrays, each containing up to maxDaysPerChunk consecutive days
+ */
+function groupDaysIntoChunks(days: string[], maxDaysPerChunk: number = 14): string[][] {
+  if (days.length === 0) {
+    return [];
+  }
+
+  const chunks: string[][] = [];
+  let currentChunk: string[] = [days[0]];
+
+  for (let i = 1; i < days.length; i++) {
+    const currentDay = new Date(`${days[i]}T00:00:00Z`);
+    const previousDay = new Date(`${days[i - 1]}T00:00:00Z`);
+    const daysDiff = (currentDay.getTime() - previousDay.getTime()) / (1000 * 60 * 60 * 24);
+
+    // If days are consecutive and chunk is not full, add to current chunk
+    if (daysDiff === 1 && currentChunk.length < maxDaysPerChunk) {
+      currentChunk.push(days[i]);
+    } else {
+      // Start a new chunk
+      chunks.push(currentChunk);
+      currentChunk = [days[i]];
+    }
+  }
+
+  // Don't forget the last chunk
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
+ * Split Datadog API response data by day based on timestamp
+ * Supports both v2 format ({ data: [{ attributes: { timestamp: "..." } }] }) and v1 format ({ usage: [{ hour: "..." }] })
+ * @param data Datadog API response
+ * @param startHr Start hour in RFC3339 format (for validation)
+ * @param endHr End hour in RFC3339 format (for validation)
+ * @returns Object mapping day (YYYY-MM-DD) to data for that day
+ */
+function splitDataByDay(data: any, startHr: string, endHr: string): Record<string, any> {
+  const dataByDay: Record<string, any> = {};
+  // Copy errors once to avoid duplication when a day has both v2 and v1 data
+  const globalErrors = data.errors ? [...data.errors] : [];
+
+  // Handle v2 format: { data: [{ attributes: { timestamp: "...", measurements: [...] } }] }
+  if (data?.data && Array.isArray(data.data)) {
+    for (const item of data.data) {
+      const timestamp = item.attributes?.timestamp;
+      if (!timestamp) continue;
+
+      const timestampDate = new Date(timestamp);
+      const dayKey = `${timestampDate.getUTCFullYear()}-${String(timestampDate.getUTCMonth() + 1).padStart(2, '0')}-${String(timestampDate.getUTCDate()).padStart(2, '0')}`;
+
+      if (!dataByDay[dayKey]) {
+        dataByDay[dayKey] = {
+          data: [],
+          usage: [], // Initialize for potential v1 data
+          errors: globalErrors,
+        };
+      }
+
+      dataByDay[dayKey].data.push(item);
+    }
+  }
+
+  // Handle v1 format: { usage: [{ hour: "...", ... }] }
+  if (data?.usage && Array.isArray(data.usage)) {
+    for (const item of data.usage) {
+      const hour = item.hour;
+      if (!hour) continue;
+
+      const hourDate = new Date(hour);
+      const dayKey = `${hourDate.getUTCFullYear()}-${String(hourDate.getUTCMonth() + 1).padStart(2, '0')}-${String(hourDate.getUTCDate()).padStart(2, '0')}`;
+
+      if (!dataByDay[dayKey]) {
+        dataByDay[dayKey] = {
+          data: [], // Initialize for potential v2 data
+          usage: [],
+          errors: globalErrors,
+        };
+      }
+
+      dataByDay[dayKey].usage.push(item);
+    }
+  }
+
+  return dataByDay;
 }
 
 /**
@@ -498,6 +625,93 @@ function aggregateUsageData(responses: Array<{ data?: any[]; usage?: any[]; erro
   }
   
   return aggregated;
+}
+
+/**
+ * Rate limit information from Datadog API headers
+ */
+interface DatadogRateLimitInfo {
+  limit: number;        // x-ratelimit-limit
+  remaining: number;    // x-ratelimit-remaining
+  reset: number;        // x-ratelimit-reset (segundos até resetar)
+  period: number;       // x-ratelimit-period (período em segundos)
+  name: string;         // x-ratelimit-name (ex: "usage_metering")
+  lastUpdated: Date;    // timestamp da última atualização
+}
+
+/**
+ * Global store for rate limit information by rate limit name
+ */
+const rateLimitStore = new Map<string, DatadogRateLimitInfo>();
+
+/**
+ * Extract rate limit information from response headers
+ * @param headers Response headers from Datadog API
+ * @returns Rate limit info or null if headers not present
+ */
+function extractRateLimitFromHeaders(headers: Headers): DatadogRateLimitInfo | null {
+  const limit = headers.get('x-ratelimit-limit');
+  const remaining = headers.get('x-ratelimit-remaining');
+  const reset = headers.get('x-ratelimit-reset');
+  const period = headers.get('x-ratelimit-period');
+  const name = headers.get('x-ratelimit-name');
+
+  if (!name) {
+    return null; // No rate limit info if name is missing
+  }
+
+  return {
+    limit: limit ? parseInt(limit, 10) : 0,
+    remaining: remaining ? parseInt(remaining, 10) : 0,
+    reset: reset ? parseInt(reset, 10) : 0,
+    period: period ? parseInt(period, 10) : 0,
+    name,
+    lastUpdated: new Date(),
+  };
+}
+
+/**
+ * Check rate limit and wait if necessary before making a request
+ * @param rateLimitName Name of the rate limit (e.g., "usage_metering")
+ * @returns Promise that resolves when it's safe to make a request
+ */
+async function checkAndWaitForRateLimit(rateLimitName: string): Promise<void> {
+  const rateLimitInfo = rateLimitStore.get(rateLimitName);
+
+  if (!rateLimitInfo) {
+    // No rate limit info yet, proceed
+    return;
+  }
+
+  // Check if we need to wait
+  // Only wait if remaining is 0 or less (not just <= 1, to allow at least 1 request)
+  if (rateLimitInfo.remaining <= 0) {
+    // Calculate wait time based on reset value
+    // If reset is provided, use it; otherwise use period as fallback
+    const waitTime = rateLimitInfo.reset > 0
+      ? rateLimitInfo.reset * 1000 // Convert to milliseconds
+      : rateLimitInfo.period > 0
+        ? rateLimitInfo.period * 1000
+        : 5000; // Default 5 seconds fallback
+
+    // Check if enough time has passed since last update
+    const timeSinceUpdate = Date.now() - rateLimitInfo.lastUpdated.getTime();
+    const adjustedWaitTime = Math.max(0, waitTime - timeSinceUpdate);
+
+    if (adjustedWaitTime > 0) {
+      debugApi('Waiting for rate limit reset', {
+        rateLimitName,
+        remaining: rateLimitInfo.remaining,
+        reset: rateLimitInfo.reset,
+        period: rateLimitInfo.period,
+        waitTimeMs: adjustedWaitTime,
+        timeSinceUpdateMs: timeSinceUpdate,
+        timestamp: new Date().toISOString(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, adjustedWaitTime));
+    }
+  }
 }
 
 /**
@@ -587,60 +801,104 @@ async function getUsageDataWithDayCache(
     }
   }
   
-  // Fetch missing days from API
+  // Fetch missing days from API using consolidated chunks
   const fetchedDays: Array<{ day: string; data: any }> = [];
   
-  for (const day of missingDays) {
-    // Calculate start and end hours for this day
-    const dayStart = new Date(`${day}T00:00:00Z`);
-    const dayEnd = new Date(`${day}T23:59:59Z`);
+  if (missingDays.length > 0) {
+    // Group missing days into chunks of 14 days
+    const dayChunks = groupDaysIntoChunks(missingDays, 14);
     
-    // Adjust to respect original startHr/endHr boundaries
-    const actualStart = new Date(Math.max(dayStart.getTime(), new Date(startHr).getTime()));
-    const actualEnd = new Date(Math.min(dayEnd.getTime(), new Date(endHr).getTime()));
+    debugApi('Processing missing days in chunks', {
+      productFamily,
+      totalMissingDays: missingDays.length,
+      chunks: dayChunks.length,
+      chunkSizes: dayChunks.map(chunk => chunk.length),
+      timestamp: new Date().toISOString(),
+    });
     
-    const dayStartHr = actualStart.toISOString();
-    const dayEndHr = actualEnd.toISOString();
-    
-    try {
-      const dayData = await getUsageDataDirect(credentials, productFamily, dayStartHr, dayEndHr);
-      
-      // getUsageDataDirect returns { data: [], errors: [...] } on error, so check if we have data
-      if (dayData && (!dayData.errors || dayData.errors.length === 0) && (dayData.data?.length > 0 || dayData.usage?.length > 0)) {
-        // Cache this day with appropriate TTL
-        const dayKey = generateDayCacheKey(productFamily, day, organizationId);
-        const ttl = getTTLForDay(day);
-        await setCachedUsageData(dayKey, dayData, ttl);
+    // Process each chunk
+    for (const chunkDays of dayChunks) {
+      try {
+        // Check rate limit before making request
+        await checkAndWaitForRateLimit('usage_metering');
         
-        fetchedDays.push({ day, data: dayData });
+        // Calculate start and end hours for this chunk
+        const chunkStart = new Date(`${chunkDays[0]}T00:00:00Z`);
+        const chunkEnd = new Date(`${chunkDays[chunkDays.length - 1]}T23:59:59Z`);
         
-        debugApi('Fetched and cached day', {
+        // Adjust to respect original startHr/endHr boundaries
+        const actualStart = new Date(Math.max(chunkStart.getTime(), new Date(startHr).getTime()));
+        const actualEnd = new Date(Math.min(chunkEnd.getTime(), new Date(endHr).getTime()));
+        
+        const chunkStartHr = actualStart.toISOString();
+        const chunkEndHr = actualEnd.toISOString();
+        
+        debugApi('Fetching chunk from API', {
           productFamily,
-          day,
-          key: dayKey,
-          ttl,
-          dataPoints: dayData.data?.length || dayData.usage?.length || 0,
+          chunkDays: chunkDays.length,
+          chunkStart: chunkDays[0],
+          chunkEnd: chunkDays[chunkDays.length - 1],
+          chunkStartHr,
+          chunkEndHr,
           timestamp: new Date().toISOString(),
         });
-      } else {
-        debugApi('Day data fetch returned empty or error', {
+        
+        // Make a single API call for the entire chunk
+        const chunkData = await getUsageDataDirect(credentials, productFamily, chunkStartHr, chunkEndHr);
+        
+        // Separate the chunk data by day in memory
+        const dataByDay = splitDataByDay(chunkData, chunkStartHr, chunkEndHr);
+        
+        debugApi('Separated chunk data by day', {
           productFamily,
-          day,
-          hasData: !!dayData?.data,
-          hasUsage: !!dayData?.usage,
-          errors: dayData?.errors,
+          chunkDays: chunkDays.length,
+          daysWithData: Object.keys(dataByDay).length,
           timestamp: new Date().toISOString(),
         });
-        // Continue with other days even if this one has no data
+        
+        // Cache each day individually
+        for (const day of chunkDays) {
+          const dayData = dataByDay[day];
+          
+          if (dayData && (!dayData.errors || dayData.errors.length === 0) && (dayData.data?.length > 0 || dayData.usage?.length > 0)) {
+            // Cache this day with appropriate TTL
+            const dayKey = generateDayCacheKey(productFamily, day, organizationId);
+            const ttl = getTTLForDay(day);
+            await setCachedUsageData(dayKey, dayData, ttl);
+            
+            fetchedDays.push({ day, data: dayData });
+            
+            debugApi('Cached day from chunk', {
+              productFamily,
+              day,
+              key: dayKey,
+              ttl,
+              dataPoints: dayData.data?.length || dayData.usage?.length || 0,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            debugApi('Day from chunk has no data', {
+              productFamily,
+              day,
+              hasData: !!dayData?.data,
+              hasUsage: !!dayData?.usage,
+              errors: dayData?.errors,
+              timestamp: new Date().toISOString(),
+            });
+            // Continue with other days even if this one has no data
+          }
+        }
+      } catch (error) {
+        debugApi('Error fetching chunk data', {
+          productFamily,
+          chunkDays: chunkDays.length,
+          chunkStart: chunkDays[0],
+          chunkEnd: chunkDays[chunkDays.length - 1],
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        });
+        // Continue with other chunks even if one fails
       }
-    } catch (error) {
-      debugApi('Error fetching day data', {
-        productFamily,
-        day,
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString(),
-      });
-      // Continue with other days even if one fails
     }
   }
   
