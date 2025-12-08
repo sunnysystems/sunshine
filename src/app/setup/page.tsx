@@ -134,7 +134,7 @@ export default function Setup() {
                   alt="logo"
                   width={94}
                   height={18}
-                  className="mb-7 dark:invert"
+                  className="mb-7"
                 />
                 <CardTitle className="text-2xl font-bold">{t('setup.title')}</CardTitle>
                 <p className="text-muted-foreground text-center">

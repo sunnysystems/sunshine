@@ -176,7 +176,7 @@ function SignUpContent() {
                   alt="logo"
                   width={94}
                   height={18}
-                  className="mb-7 dark:invert"
+                  className="mb-7"
                 />
                 <p className="mb-2 text-2xl font-bold">{t('auth.signup.title')}</p>
                 <p className="text-muted-foreground">

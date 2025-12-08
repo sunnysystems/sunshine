@@ -63,7 +63,6 @@ export const Navbar = () => {
             alt="logo"
             width={94}
             height={18}
-            className="dark:invert"
           />
         </Link>
 

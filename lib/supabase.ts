@@ -64,6 +64,8 @@ export interface Database {
           slug: string;
           plan: string;
           stripe_customer_id: string | null;
+          logo_url: string | null;
+          logo_dark_url: string | null;
           settings: Record<string, unknown>;
           created_at: string;
           updated_at: string;
@@ -74,6 +76,8 @@ export interface Database {
           slug: string;
           plan?: string;
           stripe_customer_id?: string | null;
+          logo_url?: string | null;
+          logo_dark_url?: string | null;
           settings?: Record<string, unknown>;
           created_at?: string;
           updated_at?: string;
@@ -84,6 +88,8 @@ export interface Database {
           slug?: string;
           plan?: string;
           stripe_customer_id?: string | null;
+          logo_url?: string | null;
+          logo_dark_url?: string | null;
           settings?: Record<string, unknown>;
           updated_at?: string;
         };

@@ -8,6 +8,14 @@ import {
   generateDayCacheKey,
   getTTLForDay,
 } from './cache';
+import {
+  getRateLimitInfo,
+  setRateLimitInfo,
+  decrementRateLimitRemaining,
+  checkAndWaitForRateLimit as checkAndWaitForRateLimitRedis,
+  extractRateLimitFromHeaders,
+  type DatadogRateLimitInfo,
+} from './rate-limit';
 
 /**
  * Datadog API client for making authenticated requests
@@ -99,6 +107,19 @@ export async function getOrganizationIdFromTenant(
 }
 
 /**
+ * Determine rate limit name from endpoint
+ * Different Datadog endpoints have different rate limits
+ */
+function getRateLimitNameFromEndpoint(endpoint: string): string {
+  // Usage metering endpoints use 'usage_metering' rate limit
+  if (endpoint.includes('/usage/')) {
+    return 'usage_metering';
+  }
+  // Default to 'api' for general API rate limits
+  return 'api';
+}
+
+/**
  * Make an authenticated request to Datadog API
  */
 async function datadogRequest<T>(
@@ -106,6 +127,10 @@ async function datadogRequest<T>(
   credentials: DatadogCredentials,
   options: RequestInit = {},
 ): Promise<T> {
+  // Check rate limit BEFORE making the request
+  const rateLimitName = getRateLimitNameFromEndpoint(endpoint);
+  await checkAndWaitForRateLimit(rateLimitName);
+
   const url = `${DATADOG_API_BASE}${endpoint}`;
   const headers = {
     'DD-API-KEY': credentials.apiKey,
@@ -120,6 +145,7 @@ async function datadogRequest<T>(
     method: options.method || 'GET',
     url,
     endpoint,
+    rateLimitName,
     hasApiKey: !!credentials.apiKey,
     hasAppKey: !!credentials.appKey,
     apiKeyLength: credentials.apiKey?.length || 0,
@@ -294,10 +320,12 @@ async function datadogRequest<T>(
   });
 
   // Extract and store rate limit information from headers
+  // Always update rate limit info, even if we didn't get headers (to track that we made a request)
   const rateLimitInfo = extractRateLimitFromHeaders(response.headers);
   if (rateLimitInfo) {
-    rateLimitStore.set(rateLimitInfo.name, rateLimitInfo);
-    debugApi('Rate limit info updated', {
+    // Store in Redis for centralized control across processes
+    await setRateLimitInfo(rateLimitInfo);
+    debugApi('Rate limit info updated (Redis)', {
       rateLimitName: rateLimitInfo.name,
       limit: rateLimitInfo.limit,
       remaining: rateLimitInfo.remaining,
@@ -305,6 +333,35 @@ async function datadogRequest<T>(
       period: rateLimitInfo.period,
       timestamp: new Date().toISOString(),
     });
+    
+    // Add warning if approaching rate limit
+    if (rateLimitInfo.remaining <= 5) {
+      debugApi('Rate limit warning - approaching limit', {
+        rateLimitName: rateLimitInfo.name,
+        remaining: rateLimitInfo.remaining,
+        limit: rateLimitInfo.limit,
+        reset: rateLimitInfo.reset,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } else {
+    // If we don't get rate limit headers, try to infer from endpoint
+    // and decrement a counter atomically in Redis if we have previous info
+    const inferredRateLimitName = getRateLimitNameFromEndpoint(endpoint);
+    const existingInfo = await getRateLimitInfo(inferredRateLimitName);
+    if (existingInfo && existingInfo.remaining > 0) {
+      // Decrement remaining count atomically in Redis
+      // This ensures multiple processes don't overshoot the rate limit
+      const newRemaining = await decrementRateLimitRemaining(inferredRateLimitName);
+      if (newRemaining !== null) {
+        debugApi('Rate limit info inferred (no headers, decremented in Redis)', {
+          rateLimitName: inferredRateLimitName,
+          remaining: newRemaining,
+          limit: existingInfo.limit,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
   }
 
   return response.json() as Promise<T>;
@@ -628,90 +685,14 @@ function aggregateUsageData(responses: Array<{ data?: any[]; usage?: any[]; erro
 }
 
 /**
- * Rate limit information from Datadog API headers
- */
-interface DatadogRateLimitInfo {
-  limit: number;        // x-ratelimit-limit
-  remaining: number;    // x-ratelimit-remaining
-  reset: number;        // x-ratelimit-reset (segundos até resetar)
-  period: number;       // x-ratelimit-period (período em segundos)
-  name: string;         // x-ratelimit-name (ex: "usage_metering")
-  lastUpdated: Date;    // timestamp da última atualização
-}
-
-/**
- * Global store for rate limit information by rate limit name
- */
-const rateLimitStore = new Map<string, DatadogRateLimitInfo>();
-
-/**
- * Extract rate limit information from response headers
- * @param headers Response headers from Datadog API
- * @returns Rate limit info or null if headers not present
- */
-function extractRateLimitFromHeaders(headers: Headers): DatadogRateLimitInfo | null {
-  const limit = headers.get('x-ratelimit-limit');
-  const remaining = headers.get('x-ratelimit-remaining');
-  const reset = headers.get('x-ratelimit-reset');
-  const period = headers.get('x-ratelimit-period');
-  const name = headers.get('x-ratelimit-name');
-
-  if (!name) {
-    return null; // No rate limit info if name is missing
-  }
-
-  return {
-    limit: limit ? parseInt(limit, 10) : 0,
-    remaining: remaining ? parseInt(remaining, 10) : 0,
-    reset: reset ? parseInt(reset, 10) : 0,
-    period: period ? parseInt(period, 10) : 0,
-    name,
-    lastUpdated: new Date(),
-  };
-}
-
-/**
  * Check rate limit and wait if necessary before making a request
+ * Uses Redis for centralized rate limit control across processes
  * @param rateLimitName Name of the rate limit (e.g., "usage_metering")
  * @returns Promise that resolves when it's safe to make a request
  */
 async function checkAndWaitForRateLimit(rateLimitName: string): Promise<void> {
-  const rateLimitInfo = rateLimitStore.get(rateLimitName);
-
-  if (!rateLimitInfo) {
-    // No rate limit info yet, proceed
-    return;
-  }
-
-  // Check if we need to wait
-  // Only wait if remaining is 0 or less (not just <= 1, to allow at least 1 request)
-  if (rateLimitInfo.remaining <= 0) {
-    // Calculate wait time based on reset value
-    // If reset is provided, use it; otherwise use period as fallback
-    const waitTime = rateLimitInfo.reset > 0
-      ? rateLimitInfo.reset * 1000 // Convert to milliseconds
-      : rateLimitInfo.period > 0
-        ? rateLimitInfo.period * 1000
-        : 5000; // Default 5 seconds fallback
-
-    // Check if enough time has passed since last update
-    const timeSinceUpdate = Date.now() - rateLimitInfo.lastUpdated.getTime();
-    const adjustedWaitTime = Math.max(0, waitTime - timeSinceUpdate);
-
-    if (adjustedWaitTime > 0) {
-      debugApi('Waiting for rate limit reset', {
-        rateLimitName,
-        remaining: rateLimitInfo.remaining,
-        reset: rateLimitInfo.reset,
-        period: rateLimitInfo.period,
-        waitTimeMs: adjustedWaitTime,
-        timeSinceUpdateMs: timeSinceUpdate,
-        timestamp: new Date().toISOString(),
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, adjustedWaitTime));
-    }
-  }
+  // Use Redis-based rate limit checking for centralized control
+  await checkAndWaitForRateLimitRedis(rateLimitName);
 }
 
 /**
@@ -816,22 +797,38 @@ async function getUsageDataWithDayCache(
       timestamp: new Date().toISOString(),
     });
     
-    // Process each chunk
-    for (const chunkDays of dayChunks) {
-      try {
-        // Check rate limit before making request
-        await checkAndWaitForRateLimit('usage_metering');
-        
-        // Calculate start and end hours for this chunk
+      // Process each chunk sequentially to respect rate limits
+      for (const chunkDays of dayChunks) {
+        try {
+          // Check rate limit before making request (this will wait if needed)
+          await checkAndWaitForRateLimit('usage_metering');
+          
+          // Calculate start and end hours for this chunk
         const chunkStart = new Date(`${chunkDays[0]}T00:00:00Z`);
         const chunkEnd = new Date(`${chunkDays[chunkDays.length - 1]}T23:59:59Z`);
         
-        // Adjust to respect original startHr/endHr boundaries
-        const actualStart = new Date(Math.max(chunkStart.getTime(), new Date(startHr).getTime()));
-        const actualEnd = new Date(Math.min(chunkEnd.getTime(), new Date(endHr).getTime()));
+        // Get current time in UTC (rounded down to current hour) to ensure we don't request future dates
+        const now = new Date();
+        const nowUTC = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          now.getUTCHours(),
+          0,
+          0,
+          0
+        ));
         
-        const chunkStartHr = actualStart.toISOString();
-        const chunkEndHr = actualEnd.toISOString();
+        // Adjust to respect original startHr/endHr boundaries and ensure no future dates
+        const actualStart = new Date(Math.max(chunkStart.getTime(), new Date(startHr).getTime()));
+        const actualEnd = new Date(Math.min(
+          chunkEnd.getTime(),
+          new Date(endHr).getTime(),
+          nowUTC.getTime() // Ensure we don't request future dates
+        ));
+        
+        const chunkStartHr = formatDatadogHour(actualStart);
+        const chunkEndHr = formatDatadogHour(actualEnd);
         
         debugApi('Fetching chunk from API', {
           productFamily,

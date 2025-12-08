@@ -13,6 +13,7 @@ type OrganizationMemberRecord = {
     slug: string;
     plan?: string | null;
     logo_url?: string | null;
+    logo_dark_url?: string | null;
   };
 };
 
@@ -46,7 +47,8 @@ export async function GET() {
           name,
           slug,
           plan,
-          logo_url
+          logo_url,
+          logo_dark_url
         )
       `)
       .eq('user_id', session.user.id)
@@ -92,6 +94,7 @@ export async function GET() {
       slug: member.organizations.slug,
       plan: member.organizations.plan,
       logo_url: member.organizations.logo_url || null,
+      logo_dark_url: member.organizations.logo_dark_url || null,
       role: member.role,
     })) || [];
 

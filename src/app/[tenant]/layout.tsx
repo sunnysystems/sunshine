@@ -29,6 +29,7 @@ type SessionUser = {
     slug: string;
     plan?: string | null;
     logo_url?: string | null;
+    logo_dark_url?: string | null;
     role?: string | null;
   }>;
 };

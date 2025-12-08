@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 
 import { LogOut, Settings, Building2, Plus } from 'lucide-react';
 import { useSession, signOut } from 'next-auth/react';
+import { useTheme } from 'next-themes';
 
 import { useTenant } from './TenantProvider';
 
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getUserAvatarUrl } from '@/lib/avatar';
+import { cn } from '@/lib/utils';
 
 type SessionOrganization = {
   id: string;
@@ -29,6 +31,7 @@ type SessionOrganization = {
   slug: string;
   plan?: string | null;
   logo_url?: string | null;
+  logo_dark_url?: string | null;
   role?: 'owner' | 'admin' | 'member' | string;
 };
 
@@ -46,6 +49,7 @@ export function TenantNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useTranslation();
+  const { theme, resolvedTheme } = useTheme();
 
   // Get current organization info
   const sessionUser = session?.user as SessionUser | undefined;
@@ -67,8 +71,37 @@ export function TenantNavbar() {
     router.push('/setup');
   };
 
+  // Logo selection logic
   const defaultLogoUrl = process.env.NEXT_PUBLIC_DEFAULT_LOGO_URL || '/logo.svg';
-  const logoUrl = currentOrganization?.logo_url || defaultLogoUrl;
+  const isDarkMode = resolvedTheme === 'dark' || theme === 'dark';
+  const customLogoUrl = currentOrganization?.logo_url;
+  const darkLogoUrl = currentOrganization?.logo_dark_url;
+  const isDefaultLogo = !customLogoUrl;
+  const hasDarkLogo = !!darkLogoUrl;
+  
+  // Determine which logo to use and whether to invert
+  let displayLogoUrl: string;
+  let shouldInvert: boolean;
+  let isUsingDarkLogo: boolean;
+  
+  // Priority 1: If dark logo exists and we're in dark mode, use it WITHOUT inversion
+  if (hasDarkLogo && isDarkMode) {
+    displayLogoUrl = darkLogoUrl;
+    shouldInvert = false;
+    isUsingDarkLogo = true;
+  }
+  // Priority 2: If we're in dark mode with custom logo (no dark logo), invert the custom logo
+  else if (isDarkMode && customLogoUrl && !isDefaultLogo) {
+    displayLogoUrl = customLogoUrl;
+    shouldInvert = true;
+    isUsingDarkLogo = false;
+  }
+  // Priority 3: Use normal logo (default or custom) - never invert default logo
+  else {
+    displayLogoUrl = customLogoUrl || defaultLogoUrl;
+    shouldInvert = false;
+    isUsingDarkLogo = false;
+  }
 
   const showOrganizationsSection = organizations.length > 0 || pathname === '/setup';
 
@@ -78,11 +111,19 @@ export function TenantNavbar() {
         <div className="flex items-center gap-3 pl-3">
           <Link href={currentOrganization ? `/${currentOrganization.slug}/dashboard` : '/'} className="flex-shrink-0 max-w-[calc(16rem-12px)]">
             <Image
-              src={logoUrl}
+              src={displayLogoUrl}
               alt={currentOrganization?.name || 'Logo'}
               width={120}
               height={24}
-              className="h-6 w-auto max-w-full object-contain"
+              className={cn(
+                "h-6 w-auto max-w-full object-contain",
+                // Apply dark:invert ONLY if:
+                // - shouldInvert is true (we need to invert)
+                // - AND we're NOT using the dark logo (safety check)
+                // NEVER invert if displayLogoUrl === darkLogoUrl
+                // NEVER invert default logos (isDefaultLogo check is in shouldInvert logic)
+                shouldInvert && displayLogoUrl !== darkLogoUrl ? "dark:invert" : ""
+              )}
               unoptimized
             />
           </Link>

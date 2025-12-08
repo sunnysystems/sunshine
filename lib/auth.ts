@@ -320,7 +320,8 @@ export const authOptions = {
               name,
               slug,
               plan,
-              logo_url
+              logo_url,
+              logo_dark_url
             )
           `)
           .eq('user_id', token.sub)
@@ -332,6 +333,7 @@ export const authOptions = {
           slug: member.organizations.slug,
           plan: member.organizations.plan,
           logo_url: member.organizations.logo_url,
+          logo_dark_url: member.organizations.logo_dark_url,
           role: member.role,
         })) || [];
 
@@ -379,6 +381,19 @@ export const authOptions = {
 
 // Helper functions for authentication
 
+// Cache for ensureAutoAcceptedDomainMembership to avoid redundant calls
+// Uses in-memory cache with 5 minute TTL
+const domainMembershipCache = new Map<string, { timestamp: number; result: 'processed' | 'skipped' }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCacheKey(userId: string, domain: string): string {
+  return `domain-membership:${userId}:${domain}`;
+}
+
+function isCacheValid(cacheEntry: { timestamp: number }): boolean {
+  return Date.now() - cacheEntry.timestamp < CACHE_TTL_MS;
+}
+
 export async function ensureAutoAcceptedDomainMembership(
   userId: string,
   email: string | null | undefined
@@ -392,6 +407,19 @@ export async function ensureAutoAcceptedDomainMembership(
 
   if (isPersonalEmailDomain(domain)) {
     debugAuth('Auto-accept domain skipped: personal email domain', { userId, domain });
+    return;
+  }
+
+  // Check cache first
+  const cacheKey = getCacheKey(userId, domain);
+  const cached = domainMembershipCache.get(cacheKey);
+  if (cached && isCacheValid(cached)) {
+    debugAuth('Auto-accept domain: using cache', {
+      userId,
+      domain,
+      result: cached.result,
+      cacheAge: Date.now() - cached.timestamp,
+    });
     return;
   }
 
@@ -413,6 +441,8 @@ export async function ensureAutoAcceptedDomainMembership(
 
     if (!enabledOrganizations || enabledOrganizations.length === 0) {
       debugAuth('Auto-accept domain: no organizations matched domain', { userId, domain });
+      // Cache the result (no organizations to join)
+      domainMembershipCache.set(cacheKey, { timestamp: Date.now(), result: 'skipped' });
       return;
     }
 
@@ -444,6 +474,8 @@ export async function ensureAutoAcceptedDomainMembership(
         userId,
         domain,
       });
+      // Cache the result (already belongs to all)
+      domainMembershipCache.set(cacheKey, { timestamp: Date.now(), result: 'processed' });
       return;
     }
 
@@ -477,8 +509,12 @@ export async function ensureAutoAcceptedDomainMembership(
       domain,
       organizationsCount: organizationsToJoin.length,
     });
+    
+    // Cache the result (membership was processed)
+    domainMembershipCache.set(cacheKey, { timestamp: Date.now(), result: 'processed' });
   } catch (error) {
     logError(error, 'ensureAutoAcceptedDomainMembership');
+    // Don't cache on error - allow retry
   }
 }
 

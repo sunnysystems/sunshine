@@ -24,7 +24,7 @@ async function getUserOrganizationContext(userId: string, tenant: string) {
   // Get organization by slug
   const { data: org, error: orgError } = await supabaseAdmin
     .from('organizations')
-    .select('id, name, slug, logo_url, settings')
+    .select('id, name, slug, logo_url, logo_dark_url, settings')
     .eq('slug', tenant)
     .single();
 
@@ -49,6 +49,7 @@ async function getUserOrganizationContext(userId: string, tenant: string) {
     organizationName: org.name,
     organizationSlug: org.slug,
     logoUrl: org.logo_url,
+    logoDarkUrl: org.logo_dark_url,
     settings: org.settings || {},
     userRole: membership.role as 'owner' | 'admin' | 'member',
     userStatus: membership.status
@@ -67,7 +68,7 @@ export default async function OrganizationSettingsPage({ params }: SettingsPageP
   const { tenant } = await params;
 
   // Get user's organization context
-  const { userRole, organizationId, organizationName, organizationSlug, logoUrl, settings } = await getUserOrganizationContext(session.user.id, tenant);
+  const { userRole, organizationId, organizationName, organizationSlug, logoUrl, logoDarkUrl, settings } = await getUserOrganizationContext(session.user.id, tenant);
   
   // Check permissions - only owners and admins can access settings
   if (!canManageMembers(userRole)) {
@@ -101,6 +102,7 @@ export default async function OrganizationSettingsPage({ params }: SettingsPageP
       <LogoUpload 
         organizationId={organizationId}
         currentLogoUrl={logoUrl}
+        currentLogoDarkUrl={logoDarkUrl}
         organizationName={organizationName}
       />
 

@@ -68,29 +68,26 @@ const inter = Inter({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
   title: {
-    default: "Mainline - Modern Next.js Template",
-    template: "%s | Mainline",
+    default: "Sunshine",
+    template: "%s | Sunshine",
   },
   description:
-    "A modern Next.js template built with shadcn/ui, Tailwind & MDX. Open source - MIT License.",
+    "Your Observability Co-Pilot. Centralize insights, optimize costs, and automate improvements across observability platforms. Starting with Datadog, expanding to New Relic, Instana, and more.",
   keywords: [
-    "Next.js",
-    "nextjs template",
-    "nextjs theme",
-    "nextjs starter",
-    "shadcn template",
-    "shadcn theme",
-    "shadcn starter",
-    "tailwind template",
-    "tailwind theme",
-    "tailwind starter",
-    "mdx template",
-    "mdx theme",
-    "mdx starter",
+    "observability",
+    "datadog",
+    "monitoring",
+    "finops",
+    "cost optimization",
+    "observability platform",
+    "new relic",
+    "instana",
+    "apm",
+    "monitoring tools",
   ],
-  authors: [{ name: "shadcnblocks.com" }],
-  creator: "shadcnblocks.com",
-  publisher: "shadcnblocks.com",
+  authors: [{ name: "Sunny Systems" }],
+  creator: "Sunny Systems",
+  publisher: "Sunny Systems",
   robots: {
     index: true,
     follow: true,
@@ -107,26 +104,25 @@ export const metadata: Metadata = {
     shortcut: [{ url: "/favicon/favicon.ico" }],
   },
   openGraph: {
-    title: "Mainline - Modern Next.js Template",
+    title: "Sunshine",
     description:
-      "A modern Next.js template built with shadcn/ui, Tailwind & MDX. Open source - MIT License.",
-    siteName: "Mainline",
+      "Your Observability Co-Pilot. Centralize insights, optimize costs, and automate improvements across observability platforms.",
+    siteName: "Sunshine",
     images: [
       {
         url: "/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Mainline - Modern Next.js Template",
+        alt: "Sunshine - Your Observability Co-Pilot",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Mainline - Modern Next.js Template",
+    title: "Sunshine",
     description:
-      "A modern Next.js template built with shadcn/ui, Tailwind & MDX. Open source - MIT License.",
+      "Your Observability Co-Pilot. Centralize insights, optimize costs, and automate improvements across observability platforms.",
     images: ["/og-image.jpg"],
-    creator: "@ausrobdev",
   },
 };
 

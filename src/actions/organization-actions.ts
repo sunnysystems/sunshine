@@ -21,7 +21,7 @@ async function getUserOrganizationContextById(userId: string, organizationId: st
   // Get organization by ID
   const { data: org, error: orgError } = await supabaseAdmin
     .from('organizations')
-    .select('id, name, slug, logo_url')
+    .select('id, name, slug, logo_url, logo_dark_url')
     .eq('id', organizationId)
     .single();
 

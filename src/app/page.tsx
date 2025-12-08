@@ -1,23 +1,19 @@
 import { Background } from "@/components/background";
-import { Logos } from "@/components/blocks/logos";
-import { SaasFAQ } from "@/components/blocks/saas-faq";
-import { SaasFeatures } from "@/components/blocks/saas-features";
-import { SaasHero } from "@/components/blocks/saas-hero";
-import { SaasPricing } from "@/components/blocks/saas-pricing";
-import { Testimonials } from "@/components/blocks/testimonials";
+import { SunshineHero } from "@/components/blocks/sunshine-hero";
+import { SunshineFeatures } from "@/components/blocks/sunshine-features";
+import { SunshineValueProps } from "@/components/blocks/sunshine-value-props";
+import { SunshineCTA } from "@/components/blocks/sunshine-cta";
 
 export default function Home() {
   return (
     <>
       <Background className="via-muted to-muted/80">
-        <SaasHero />
-        <Logos />
-        <SaasFeatures />
+        <SunshineHero />
+        <SunshineFeatures />
       </Background>
-      <Testimonials />
+      <SunshineValueProps />
       <Background variant="bottom">
-        <SaasPricing />
-        <SaasFAQ />
+        <SunshineCTA />
       </Background>
     </>
   );

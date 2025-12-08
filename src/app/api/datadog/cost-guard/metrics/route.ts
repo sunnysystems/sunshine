@@ -148,18 +148,41 @@ export async function GET(request: NextRequest) {
 
     // Calculate date range: Datadog always bills monthly (day 1 to last day of month)
     // Always aggregate from day 1 of current month to today (or end of month if passed)
+    // Use UTC to avoid timezone issues
     const now = new Date();
+    const nowUTC = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+      0, // Round down to the current hour
+      0,
+      0
+    ));
+    
+    // End date should not be in the future - use current hour in UTC
     const endDate = endDateParam
       ? new Date(endDateParam)
-      : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      : nowUTC;
     
-    // Start from day 1 of the current month
+    // Ensure endDate is not in the future
+    const safeEndDate = endDate > nowUTC ? nowUTC : endDate;
+    
+    // Start from day 1 of the current month in UTC
     const startDate = startDateParam
       ? new Date(startDateParam)
-      : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      : new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          1,
+          0,
+          0,
+          0,
+          0
+        ));
 
     const startHr = formatDatadogHour(startDate);
-    const endHr = formatDatadogHour(endDate);
+    const endHr = formatDatadogHour(safeEndDate);
 
     // If we have individual services, use them; otherwise fall back to product families
     if (services && services.length > 0) {
