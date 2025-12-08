@@ -214,7 +214,50 @@ export async function GET(request: NextRequest) {
             serviceName: service.service_name,
             timestamp: new Date().toISOString(),
           });
+          // Add service with error state instead of skipping
+          const committed = Number(service.quantity) || 0;
+          serviceUsages.push({
+            serviceKey: service.service_key,
+            serviceName: service.service_name,
+            usage: 0,
+            committed,
+            threshold: service.threshold !== null && service.threshold !== undefined
+              ? Number(service.threshold)
+              : committed * 0.9,
+            projected: 0,
+            trend: [],
+            status: 'ok' as const,
+            category: 'logs' as const, // Default category
+            unit: service.unit,
+            utilization: 0,
+            hasError: true,
+            error: 'No mapping found for service',
+          } as ServiceUsage);
           // Update progress after processing (even if no mapping)
+          updateProgress(tenant, 'metrics', service.service_name);
+          continue;
+        }
+
+        // Skip API call for code_security_bundle (not available via API)
+        if (service.service_key === 'code_security_bundle') {
+          const committed = Number(service.quantity) || 0;
+          serviceUsages.push({
+            serviceKey: service.service_key,
+            serviceName: service.service_name,
+            usage: 0,
+            committed,
+            threshold: service.threshold !== null && service.threshold !== undefined
+              ? Number(service.threshold)
+              : committed * 0.9,
+            projected: 0,
+            trend: [],
+            status: 'ok' as const,
+            category: mapping.category,
+            unit: service.unit,
+            utilization: 0,
+            hasError: true,
+            error: 'Service not available via API',
+          } as ServiceUsage);
           updateProgress(tenant, 'metrics', service.service_name);
           continue;
         }
@@ -234,6 +277,25 @@ export async function GET(request: NextRequest) {
               error: usageData.error,
               timestamp: new Date().toISOString(),
             });
+            // Add service with error state instead of skipping
+            const committed = Number(service.quantity) || 0;
+            serviceUsages.push({
+              serviceKey: service.service_key,
+              serviceName: service.service_name,
+              usage: 0,
+              committed,
+              threshold: service.threshold !== null && service.threshold !== undefined
+                ? Number(service.threshold)
+                : committed * 0.9,
+              projected: 0,
+              trend: [],
+              status: 'ok' as const,
+              category: mapping.category,
+              unit: service.unit,
+              utilization: 0,
+              hasError: true,
+              error: typeof usageData.error === 'string' ? usageData.error : 'Error fetching usage data',
+            } as ServiceUsage);
             // Update progress after processing (even if error)
             updateProgress(tenant, 'metrics', service.service_name);
             continue;
@@ -274,16 +336,49 @@ export async function GET(request: NextRequest) {
             category: mapping.category,
             unit: service.unit,
             utilization,
+            // hasError and error are undefined for successful requests (zero is real zero)
           } as ServiceUsage);
 
           // Update progress after successful processing
           updateProgress(tenant, 'metrics', service.service_name);
         } catch (error) {
+          // If it's a rate limit error, propagate it immediately (don't add service with error)
+          // The outer catch will handle it and return proper rate limit response with retryAfter
+          if (error instanceof DatadogRateLimitError) {
+            debugApi(`Rate limit error while processing service ${service.service_key} - propagating error`, {
+              serviceKey: service.service_key,
+              serviceName: service.service_name,
+              retryAfter: error.retryAfter,
+              timestamp: new Date().toISOString(),
+            });
+            // Relaunch the error so the outer catch can handle it properly
+            throw error;
+          }
+          
           debugApi(`Error processing service ${service.service_key}`, {
             serviceKey: service.service_key,
             error: error instanceof Error ? error.message : String(error),
             timestamp: new Date().toISOString(),
           });
+          // Add service with error state instead of skipping (for non-rate-limit errors)
+          const committed = Number(service.quantity) || 0;
+          serviceUsages.push({
+            serviceKey: service.service_key,
+            serviceName: service.service_name,
+            usage: 0,
+            committed,
+            threshold: service.threshold !== null && service.threshold !== undefined
+              ? Number(service.threshold)
+              : committed * 0.9,
+            projected: 0,
+            trend: [],
+            status: 'ok' as const,
+            category: mapping.category,
+            unit: service.unit,
+            utilization: 0,
+            hasError: true,
+            error: error instanceof Error ? error.message : String(error),
+          } as ServiceUsage);
           // Update progress after processing (even if error)
           updateProgress(tenant, 'metrics', service.service_name);
         }

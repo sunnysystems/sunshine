@@ -244,6 +244,8 @@ export default function CostGuardMetricsPage() {
           status: service.status || 'ok',
           category: service.category || 'logs',
           unit: service.unit || '',
+          hasError: service.hasError || false,
+          error: service.error || null,
         }));
         setMetricsData(servicesAsMetrics);
       } else {
@@ -359,13 +361,16 @@ export default function CostGuardMetricsPage() {
               ? t('datadog.costGuard.table.statusWatch')
               : t('datadog.costGuard.table.statusOk');
 
+        // Check if there's an error (hasError or error field)
+        const hasError = (metric as any).hasError === true || (metric as any).error !== null && (metric as any).error !== undefined;
+        
         return {
           metric: metricName,
           unit: metricUnit,
-          usage: metric.usage.toLocaleString(),
+          usage: hasError ? 'N/A' : metric.usage.toLocaleString(),
           limit: metric.committed.toLocaleString(),
           threshold: metric.threshold ? metric.threshold.toLocaleString() : null,
-          projected: metric.projected.toLocaleString(),
+          projected: hasError ? 'N/A' : metric.projected.toLocaleString(),
           status: {
             type: metric.status,
             label: statusLabel,
@@ -486,15 +491,18 @@ export default function CostGuardMetricsPage() {
                 ? t('datadog.costGuard.table.statusWatch')
                 : t('datadog.costGuard.table.statusOk');
           
+          // Check if there's an error (hasError or error field)
+          const hasError = (metric as any).hasError === true || ((metric as any).error !== null && (metric as any).error !== undefined);
+          
           return (
             <MetricUsageCard
               key={metric.key}
               name={name}
               unit={unit}
-              usage={metric.usage}
+              usage={hasError ? 'N/A' : metric.usage}
               limit={metric.committed}
               threshold={metric.threshold ?? null}
-              projected={metric.projected}
+              projected={hasError ? 'N/A' : metric.projected}
               trend={metric.trend}
               statusBadge={
                 <Badge variant="outline" className="border px-2 py-0.5 text-xs font-medium">

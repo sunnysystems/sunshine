@@ -172,6 +172,14 @@ export async function GET(request: NextRequest) {
         const mapping = getServiceMapping(service.service_key);
         if (!mapping) {
           // Update progress after processing (even if no mapping)
+          // Service is still included in contractedSpend (from database)
+          updateProgress(tenant, 'summary', service.service_name);
+          continue;
+        }
+
+        // Skip API call for code_security_bundle (not available via API)
+        // Service is still included in contractedSpend (from database)
+        if (service.service_key === 'code_security_bundle') {
           updateProgress(tenant, 'summary', service.service_name);
           continue;
         }
@@ -187,6 +195,7 @@ export async function GET(request: NextRequest) {
 
           if (usageData?.error) {
             // Update progress after processing (even if error)
+            // Service is still included in contractedSpend (from database)
             updateProgress(tenant, 'summary', service.service_name);
             continue;
           }
@@ -231,7 +240,21 @@ export async function GET(request: NextRequest) {
           // Update progress after successful processing
           updateProgress(tenant, 'summary', service.service_name);
         } catch (error) {
+          // If it's a rate limit error, propagate it immediately
+          // The outer catch will handle it and return proper rate limit response with retryAfter
+          if (error instanceof DatadogRateLimitError) {
+            debugApi(`Rate limit error while processing service ${service.service_key} in summary - propagating error`, {
+              serviceKey: service.service_key,
+              serviceName: service.service_name,
+              retryAfter: error.retryAfter,
+              timestamp: new Date().toISOString(),
+            });
+            // Relaunch the error so the outer catch can handle it properly
+            throw error;
+          }
+          
           // Update progress after processing (even if error)
+          // Service is still included in contractedSpend (from database)
           updateProgress(tenant, 'summary', service.service_name);
         }
       }

@@ -72,6 +72,8 @@ export interface ServiceUsage {
   category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
   unit: string;
   utilization: number; // percentage
+  hasError?: boolean; // Indicates if there was an error fetching data
+  error?: string | null; // Error message if hasError is true
 }
 
 export interface ContractConfig {

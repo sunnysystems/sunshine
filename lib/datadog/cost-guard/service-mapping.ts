@@ -37,8 +37,33 @@ function extractInfraHostEnterprise(data: any): number {
     return maxValue;
   }
   
-  // Fallback: use total usage if we can't filter by type
-  return calculateTotalUsage(data);
+  // Fallback: try to find any host-related usage_type and get max
+  // Don't use calculateTotalUsage as it sums everything (wrong for capacity metrics)
+  const fallbackMax = extractMaxUsage(data, (usageType) =>
+    usageType?.includes('host') && 
+    !usageType?.includes('container') && 
+    !usageType?.includes('database') &&
+    !usageType?.includes('apm')
+  );
+  
+  if (fallbackMax > 0) {
+    debugApi('Extracted Infra Host Enterprise (fallback max)', {
+      fallbackMax,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return fallbackMax;
+  }
+  
+  // Last resort: return 0 instead of summing (which would be incorrect)
+  debugApi('No Infra Host Enterprise data found', {
+    hoursProcessed: data?.data?.length || 0,
+    availableUsageTypes: data?.data?.flatMap((h: any) => 
+      h?.attributes?.measurements?.map((m: any) => m?.usage_type) || []
+    ).filter(Boolean) || [],
+    timestamp: new Date().toISOString(),
+  });
+  return 0;
 }
 
 /**
@@ -191,6 +216,9 @@ function extractLogEvents(data: any): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     let hoursProcessed = 0;
+    const usageTypesFound = new Set<string>();
+    const sampleMeasurements: Array<{ usageType: string; value: number; timestamp?: string }> = [];
+    
     for (const hourlyUsage of data.data) {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
@@ -200,6 +228,15 @@ function extractLogEvents(data: any): number {
             (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log'))
           ) {
             total += measurement.value || 0;
+            usageTypesFound.add(measurement.usage_type);
+            // Store first 5 measurements as samples for debugging
+            if (sampleMeasurements.length < 5) {
+              sampleMeasurements.push({
+                usageType: measurement.usage_type,
+                value: measurement.value || 0,
+                timestamp: hourlyUsage.attributes?.timestamp,
+              });
+            }
           }
         }
         hoursProcessed++;
@@ -211,6 +248,8 @@ function extractLogEvents(data: any): number {
       totalRaw: total,
       resultInMillions: result,
       hoursProcessed,
+      usageTypesFound: Array.from(usageTypesFound),
+      sampleMeasurements,
       timestamp: new Date().toISOString(),
     });
     return result;

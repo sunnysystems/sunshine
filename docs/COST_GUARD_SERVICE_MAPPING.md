@@ -205,14 +205,19 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Product Family**: `code_security`
 - **Usage Type**: `code_security_committers`
 - **Unit**: `Committer`
-- **API Response**: 
-  - API v2 retorna erro 400 "Taxonomy error" (não suportado)
-  - API v1 fallback: usa endpoint `/api/v1/usage/ci-app`
-  - Formato da resposta: `{ usage: [{ hour: "...", ci_visibility_itr_committers: 5, ci_visibility_pipeline_committers: 7, ci_visibility_test_committers: 9, ... }] }`
-- **Extraction**: 
-  - Para cada item no array `usage`, pega o maior valor entre `ci_visibility_itr_committers`, `ci_visibility_pipeline_committers` e `ci_visibility_test_committers`
-  - Retorna o maior valor geral de todo o período (não soma, pois Code Security cobra por committers únicos)
-  - O endpoint `ci-app` tem limitação de 24 horas por requisição, então períodos maiores são divididos em chunks automaticamente
+- **Status**: ⚠️ **DESATIVADO** - Busca de dados via API desativada
+- **Motivo**: Não existe uma forma oficial via API do Datadog para obter dados de utilização deste serviço
+  - API v2 retorna erro 400 "Taxonomy error: Product family code_security invalid"
+  - API v1 fallback (`/api/v1/usage/ci-app`) retorna erro 404 "Not found"
+- **Comportamento**: 
+  - O serviço continua listado no contrato e aparece na interface
+  - Campos de uso (`usage`, `projected`) exibem "N/A" ao invés de valores numéricos
+  - O serviço é incluído no cálculo de `contractedSpend` (valor do contrato)
+  - O serviço não é incluído nos cálculos de projeção e utilização do summary
+- **Nota Histórica**: 
+  - Anteriormente tentava usar API v1 fallback com endpoint `/api/v1/usage/ci-app`
+  - Formato esperado: `{ usage: [{ hour: "...", ci_visibility_itr_committers: 5, ci_visibility_pipeline_committers: 7, ci_visibility_test_committers: 9, ... }] }`
+  - Extração esperada: maior valor entre os três tipos de committers para todo o período
 
 ## Formato da Resposta da API
 
@@ -307,11 +312,51 @@ const usageData = await getUsageData(
 const usage = extractLogIngestion(usageData);
 ```
 
+## Tratamento de Erros
+
+O sistema distingue entre **zero real** (dados da API são zero) e **erros** (falha na API, produto não existe, etc.):
+
+### Comportamento quando há erro:
+- **Serviços com erro aparecem na lista** com campos de uso exibindo "N/A" ao invés de "0"
+- Campos afetados: `usage`, `projected`, `utilization`
+- Campos sempre visíveis: `committed`, `threshold` (valores do contrato)
+- O serviço **não é incluído** nos cálculos de projeção e utilização do summary
+- O serviço **é incluído** no `contractedSpend` (valor do contrato vem do banco de dados)
+
+### Tipos de erro tratados:
+1. **Erro na API do Datadog**: Quando `usageData.error` está presente
+2. **Exceções durante processamento**: Quando ocorre erro no `try/catch`
+3. **Serviço não disponível via API**: Como `code_security_bundle` que não tem endpoint oficial
+4. **Mapping não encontrado**: Quando não existe mapeamento para o `service_key`
+
+### Interface TypeScript:
+```typescript
+export interface ServiceUsage {
+  // ... outros campos
+  hasError?: boolean; // Indica se houve erro na busca de dados
+  error?: string | null; // Mensagem de erro se hasError é true
+}
+```
+
+### Exemplo de resposta com erro:
+```json
+{
+  "serviceKey": "code_security_bundle",
+  "serviceName": "Code Security Bundle",
+  "usage": 0,
+  "committed": 10,
+  "hasError": true,
+  "error": "Service not available via API"
+}
+```
+
 ## Troubleshooting
 
 Se um serviço não estiver retornando dados:
 1. Verificar se o `usage_type` está correto na resposta da API
 2. Verificar se o `product_family` está correto
+3. **Verificar se há erro**: Se o campo `hasError` for `true`, verificar a mensagem em `error`
+4. **Verificar logs**: Usar `debugApi` para ver detalhes do erro na busca de dados
 3. Verificar se a conta Datadog tem acesso ao serviço
 4. Verificar logs de debug para ver a estrutura exata da resposta
 

@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils';
 interface MetricUsageCardProps {
   name: string;
   unit: string;
-  usage: number;
+  usage: number | string; // Can be number or "N/A" for errors
   limit: number;
   threshold?: number | null;
-  projected: number;
+  projected: number | string; // Can be number or "N/A" for errors
   trend: number[];
   statusBadge: React.ReactNode;
   actionLabel: string;
@@ -32,8 +32,12 @@ export function MetricUsageCard({
   statusBadge,
   actionLabel,
 }: MetricUsageCardProps) {
-  const usagePct = Math.min((usage / limit) * 100, 120);
-  const projectedPct = Math.min((projected / limit) * 100, 120);
+  const hasError = typeof usage === 'string' || typeof projected === 'string';
+  const usageValue = typeof usage === 'string' ? 0 : usage;
+  const projectedValue = typeof projected === 'string' ? 0 : projected;
+  
+  const usagePct = hasError ? 0 : Math.min((usageValue / limit) * 100, 120);
+  const projectedPct = hasError ? 0 : Math.min((projectedValue / limit) * 100, 120);
   const thresholdPct =
     threshold && limit > 0 ? Math.min((threshold / limit) * 100, 120) : null;
 
@@ -55,21 +59,30 @@ export function MetricUsageCard({
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Usage</span>
             <span className="font-medium">
-              {usage.toLocaleString()} / {limit.toLocaleString()}
+              {typeof usage === 'string' ? usage : usage.toLocaleString()} / {limit.toLocaleString()}
             </span>
           </div>
           <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                'absolute inset-y-0 left-0 rounded-full',
-                statusBarColors.fill,
-              )}
-              style={{ width: `${usagePct}%` }}
-            />
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-primary/30"
-              style={{ width: `${projectedPct}%`, opacity: 0.4 }}
-            />
+            {!hasError && (
+              <>
+                <div
+                  className={cn(
+                    'absolute inset-y-0 left-0 rounded-full',
+                    statusBarColors.fill,
+                  )}
+                  style={{ width: `${usagePct}%` }}
+                />
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-primary/30"
+                  style={{ width: `${projectedPct}%`, opacity: 0.4 }}
+                />
+              </>
+            )}
+            {hasError && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+                N/A
+              </div>
+            )}
             {thresholdPct ? (
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-destructive/70"
@@ -79,7 +92,7 @@ export function MetricUsageCard({
             <div className="absolute inset-0 rounded-full ring-1 ring-inset ring-border/50" />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>Projected {projected.toLocaleString()}</span>
+            <span>Projected {typeof projected === 'string' ? projected : projected.toLocaleString()}</span>
             {threshold ? (
               <span>Threshold {threshold.toLocaleString()}</span>
             ) : (

@@ -886,7 +886,43 @@ async function getUsageDataWithDayCache(
           }
         }
       } catch (error) {
-        debugApi('Error fetching chunk data', {
+        // If it's a rate limit error, save what we have and propagate the error
+        if (error instanceof DatadogRateLimitError) {
+          debugApi('Rate limit error while fetching chunk data - saving progress and propagating error', {
+            productFamily,
+            chunkDays: chunkDays.length,
+            chunkStart: chunkDays[0],
+            chunkEnd: chunkDays[chunkDays.length - 1],
+            retryAfter: error.retryAfter,
+            cachedDays: cachedDays.length,
+            fetchedDays: fetchedDays.length,
+            timestamp: new Date().toISOString(),
+          });
+          
+          // Aggregate what we have so far (days already cached + days fetched before rate limit)
+          const partialData = [...cachedDays, ...fetchedDays];
+          
+          // Log cache completion status before propagating error
+          const missingAfterFetch = days.filter(day => 
+            !cachedDays.some(c => c.day === day) && !fetchedDays.some(f => f.day === day)
+          );
+          
+          debugApi('Cache completion status (partial due to rate limit)', {
+            productFamily,
+            totalDays: days.length,
+            cachedDays: cachedDays.length,
+            fetchedDays: fetchedDays.length,
+            missingDays: missingAfterFetch.length,
+            missingDayList: missingAfterFetch,
+            timestamp: new Date().toISOString(),
+          });
+          
+          // Days already processed are saved in cache, so they'll be available on retry
+          // Now propagate the rate limit error so the route can return it to the frontend
+          throw error;
+        }
+        
+        debugApi('Error fetching chunk data (non-rate-limit)', {
           productFamily,
           chunkDays: chunkDays.length,
           chunkStart: chunkDays[0],
@@ -894,13 +930,28 @@ async function getUsageDataWithDayCache(
           error: error instanceof Error ? error.message : String(error),
           timestamp: new Date().toISOString(),
         });
-        // Continue with other chunks even if one fails
+        // Continue with other chunks for non-rate-limit errors
       }
     }
   }
   
   // Aggregate all data (cached + fetched)
   const allDayData = [...cachedDays, ...fetchedDays];
+  
+  // Log cache completion status
+  const missingAfterFetch = days.filter(day => 
+    !cachedDays.some(c => c.day === day) && !fetchedDays.some(f => f.day === day)
+  );
+  
+  debugApi('Cache completion status', {
+    productFamily,
+    totalDays: days.length,
+    cachedDays: cachedDays.length,
+    fetchedDays: fetchedDays.length,
+    missingDays: missingAfterFetch.length,
+    missingDayList: missingAfterFetch,
+    timestamp: new Date().toISOString(),
+  });
   
   if (allDayData.length === 0) {
     return { data: [], errors: [] };
