@@ -8,6 +8,7 @@ import { MetricUsageCard } from '@/components/datadog/cost-guard/MetricUsageCard
 import { MetricUsageTable, type MetricTableRow } from '@/components/datadog/cost-guard/MetricUsageTable';
 import { ErrorState } from '@/components/datadog/cost-guard/ErrorState';
 import { MetricsLoading } from '@/components/datadog/cost-guard/LoadingState';
+import { ProgressIndicator } from '@/components/datadog/cost-guard/ProgressIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -27,7 +28,7 @@ const metricLabels = {
 } as const;
 
 interface MetricConfig {
-  key: keyof typeof metricLabels;
+  key: string; // Can be a metricLabels key or a service key
   usage: number;
   committed: number;
   threshold?: number | null;
@@ -35,6 +36,10 @@ interface MetricConfig {
   trend: number[];
   status: Status;
   category: MetricCategory;
+  // Optional service-specific fields
+  serviceName?: string;
+  serviceKey?: string;
+  unit?: string;
 }
 
 export default function CostGuardMetricsPage() {
@@ -44,8 +49,10 @@ export default function CostGuardMetricsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rateLimitError, setRateLimitError] = useState(false);
+  const [timeoutError, setTimeoutError] = useState(false);
   const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [metricsData, setMetricsData] = useState<any[]>([]);
+  const [progress, setProgress] = useState({ progress: 0, total: 0, completed: 0, current: '' });
 
   // Extract tenant from pathname
   const tenant = useMemo(() => {
@@ -75,11 +82,31 @@ export default function CostGuardMetricsPage() {
       setLoading(true);
       setError(null);
       setRateLimitError(false);
+      setTimeoutError(false);
       setRetryAfter(undefined);
+      setProgress({ progress: 0, total: 0, completed: 0, current: '' });
+
+      // Start polling for progress
+      const progressInterval = setInterval(async () => {
+        try {
+          const progressRes = await fetch(
+            `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=metrics`,
+          );
+          if (progressRes.ok) {
+            const progressData = await progressRes.json();
+            setProgress(progressData);
+          }
+        } catch {
+          // Ignore progress fetch errors
+        }
+      }, 500); // Poll every 500ms
 
       const response = await fetch(
         `/api/datadog/cost-guard/metrics?tenant=${encodeURIComponent(tenant)}`,
       );
+
+      // Clear progress polling
+      clearInterval(progressInterval);
 
       // Check for rate limit errors
       if (response.status === 429) {
@@ -94,15 +121,50 @@ export default function CostGuardMetricsPage() {
         return;
       }
 
+      // Check for timeout errors
+      if (response.status === 504) {
+        const errorData = await response.json().catch(() => ({
+          message: 'Request timeout',
+        }));
+        setTimeoutError(true);
+        setError(errorData.message || 'Request timeout');
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch metrics data');
         throw new Error(errorText || 'Failed to fetch metrics data');
       }
 
       const data = await response.json();
-      setMetricsData(data.metrics || []);
+      
+      // Handle both services (new format) and metrics (old format)
+      if (data.services && Array.isArray(data.services) && data.services.length > 0) {
+        // Convert services to metrics format for backward compatibility
+        // Use serviceKey as a unique identifier, and serviceName for display
+        const servicesAsMetrics = data.services.map((service: any) => ({
+          key: service.serviceKey || `service_${service.serviceName?.toLowerCase().replace(/\s+/g, '_')}` || 'unknown',
+          serviceKey: service.serviceKey,
+          serviceName: service.serviceName,
+          usage: service.usage || 0,
+          committed: service.committed || 0,
+          threshold: service.threshold ?? null,
+          projected: service.projected || service.usage || 0,
+          trend: service.trend || [],
+          status: service.status || 'ok',
+          category: service.category || 'logs',
+          unit: service.unit || '',
+        }));
+        setMetricsData(servicesAsMetrics);
+      } else {
+        // Fallback to old metrics format
+        setMetricsData(data.metrics || []);
+      }
+      
       setRateLimitError(false);
       setRetryAfter(undefined);
+      setProgress({ progress: 100, total: progress.total || 1, completed: progress.total || 1, current: '' });
     } catch (err) {
       // Only set error state if it's not already a rate limit error
       if (!rateLimitError) {
@@ -124,17 +186,35 @@ export default function CostGuardMetricsPage() {
       return [];
     }
 
+    // Map service categories to page categories
+    const categoryMap: Record<string, MetricCategory> = {
+      infrastructure: 'infra',
+      infra: 'infra',
+      apm: 'apm',
+      logs: 'logs',
+      observability: 'experience',
+      experience: 'experience',
+      security: 'logs', // Security services go to logs category for now
+    };
+
     // Map API response to MetricConfig format
-    return metricsData.map((metric) => ({
-      key: metric.key as keyof typeof metricLabels,
-      usage: metric.usage || 0,
-      committed: metric.committed || 1000,
-      threshold: metric.threshold ?? null,
-      projected: metric.projected || metric.usage || 0,
-      trend: metric.trend || [],
-      status: metric.status || 'ok',
-      category: metric.category || 'logs',
-    }));
+    return metricsData.map((metric) => {
+      // Map category from service format to page format
+      const mappedCategory = categoryMap[metric.category] || 'logs';
+      
+      return {
+        key: metric.key as keyof typeof metricLabels,
+        usage: metric.usage || 0,
+        committed: metric.committed || 1000,
+        threshold: metric.threshold ?? null,
+        projected: metric.projected || metric.usage || 0,
+        trend: metric.trend || [],
+        status: metric.status || 'ok',
+        category: mappedCategory,
+        // Preserve service data for rendering
+        ...(metric.serviceName && { serviceName: metric.serviceName, serviceKey: metric.serviceKey, unit: metric.unit }),
+      };
+    });
   }, [metricsData]);
 
   const filteredMetrics =
@@ -145,7 +225,20 @@ export default function CostGuardMetricsPage() {
   const tableRows: MetricTableRow[] = useMemo(
     () =>
       filteredMetrics.map((metric) => {
-        const labelBase = metricLabels[metric.key];
+        // Check if this is a service (has serviceName) or a legacy metric
+        const isService = (metric as any).serviceName;
+        const labelBase = isService ? null : metricLabels[metric.key];
+        
+        // Use serviceName if available, otherwise use translation
+        const metricName = isService 
+          ? (metric as any).serviceName 
+          : (labelBase ? t(`${labelBase}.label`) : metric.key);
+        
+        // Use unit from service if available, otherwise use translation
+        const metricUnit = isService 
+          ? (metric as any).unit || ''
+          : (labelBase ? t(`${labelBase}.unit`) : '');
+        
         const statusLabel =
           metric.status === 'critical'
             ? t('datadog.costGuard.table.statusCritical')
@@ -154,8 +247,8 @@ export default function CostGuardMetricsPage() {
               : t('datadog.costGuard.table.statusOk');
 
         return {
-          metric: t(`${labelBase}.label`),
-          unit: t(`${labelBase}.unit`),
+          metric: metricName,
+          unit: metricUnit,
           usage: metric.usage.toLocaleString(),
           limit: metric.committed.toLocaleString(),
           threshold: metric.threshold ? metric.threshold.toLocaleString() : null,
@@ -164,7 +257,7 @@ export default function CostGuardMetricsPage() {
             type: metric.status,
             label: statusLabel,
           },
-          action: t(`${labelBase}.action`),
+          action: labelBase ? t(`${labelBase}.action`) : '',
         };
       }),
     [filteredMetrics, t],
@@ -181,7 +274,17 @@ export default function CostGuardMetricsPage() {
             {t('datadog.costGuard.metricsSection.description')}
           </p>
         </header>
-        <MetricsLoading />
+        <div className="space-y-4">
+          {progress.total > 0 && (
+            <ProgressIndicator
+              progress={progress.progress}
+              total={progress.total}
+              completed={progress.completed}
+              current={progress.current}
+            />
+          )}
+          <MetricsLoading />
+        </div>
       </div>
     );
   }
@@ -201,6 +304,7 @@ export default function CostGuardMetricsPage() {
           message={error || undefined}
           onRetry={fetchData}
           rateLimitError={rateLimitError}
+          timeoutError={timeoutError}
           retryAfter={retryAfter}
         />
       </div>
@@ -248,18 +352,32 @@ export default function CostGuardMetricsPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         {filteredMetrics.map((metric) => {
-          const labelBase = metricLabels[metric.key];
+          // Check if this is a service (has serviceName) or a legacy metric
+          const isService = (metric as any).serviceName;
+          const labelBase = isService ? null : metricLabels[metric.key];
+          
+          // Use serviceName if available, otherwise use translation
+          const name = isService 
+            ? (metric as any).serviceName 
+            : (labelBase ? t(`${labelBase}.label`) : metric.key);
+          
+          // Use unit from service if available, otherwise use translation
+          const unit = isService 
+            ? (metric as any).unit || ''
+            : (labelBase ? t(`${labelBase}.unit`) : '');
+          
           const statusLabel =
             metric.status === 'critical'
               ? t('datadog.costGuard.table.statusCritical')
               : metric.status === 'watch'
                 ? t('datadog.costGuard.table.statusWatch')
                 : t('datadog.costGuard.table.statusOk');
+          
           return (
             <MetricUsageCard
               key={metric.key}
-              name={t(`${labelBase}.label`)}
-              unit={t(`${labelBase}.unit`)}
+              name={name}
+              unit={unit}
               usage={metric.usage}
               limit={metric.committed}
               threshold={metric.threshold ?? null}
@@ -270,7 +388,7 @@ export default function CostGuardMetricsPage() {
                   {statusLabel}
                 </Badge>
               }
-              actionLabel={t(`${labelBase}.action`)}
+              actionLabel={labelBase ? t(`${labelBase}.action`) : ''}
             />
           );
         })}

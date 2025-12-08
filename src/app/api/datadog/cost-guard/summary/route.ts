@@ -10,6 +10,7 @@ import {
   getUsageData,
   getOrganizationIdFromTenant,
   DatadogRateLimitError,
+  DatadogTimeoutError,
 } from '@/lib/datadog/client';
 import {
   calculateOverageRisk,
@@ -21,6 +22,7 @@ import {
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping } from '@/lib/datadog/cost-guard/service-mapping';
+import { initProgress, updateProgress, clearProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
 
@@ -138,11 +140,16 @@ export async function GET(request: NextRequest) {
       const allTrends: number[] = [];
       let totalThreshold = 0;
 
-      // Fetch usage for each service and calculate cost
-      const usagePromises = services.map(async (service) => {
+      // Initialize progress tracking
+      initProgress(tenant, 'summary', services.length);
+
+      // Fetch usage for each service sequentially to track progress
+      for (const service of services) {
         const mapping = getServiceMapping(service.service_key);
         if (!mapping) {
-          return null;
+          // Update progress after processing (even if no mapping)
+          updateProgress(tenant, 'summary', service.service_name);
+          continue;
         }
 
         try {
@@ -155,7 +162,9 @@ export async function GET(request: NextRequest) {
           );
 
           if (usageData?.error) {
-            return null;
+            // Update progress after processing (even if error)
+            updateProgress(tenant, 'summary', service.service_name);
+            continue;
           }
 
           // Extract usage using the service-specific function
@@ -195,13 +204,16 @@ export async function GET(request: NextRequest) {
             : committed * 0.9 * listPrice;
           totalThreshold += threshold;
 
-          return { serviceCost, trend, usage, committed };
+          // Update progress after successful processing
+          updateProgress(tenant, 'summary', service.service_name);
         } catch (error) {
-          return null;
+          // Update progress after processing (even if error)
+          updateProgress(tenant, 'summary', service.service_name);
         }
-      });
+      }
 
-      await Promise.all(usagePromises);
+      // Clear progress after completion
+      clearProgress(tenant, 'summary');
 
       // Calculate projected spend (based on trend and list prices)
       const avgTrend = allTrends.length > 0
@@ -355,6 +367,18 @@ export async function GET(request: NextRequest) {
           error: error.message,
         },
         { status: 429 },
+      );
+    }
+
+    // Handle timeout errors specifically
+    if (error instanceof DatadogTimeoutError) {
+      return NextResponse.json(
+        {
+          message: 'Request timeout. The Datadog API took too long to respond. Please try again.',
+          timeout: true,
+          error: error.message,
+        },
+        { status: 504 },
       );
     }
 

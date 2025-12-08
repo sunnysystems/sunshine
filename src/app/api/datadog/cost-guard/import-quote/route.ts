@@ -18,6 +18,62 @@ async function validateOwnerOrAdmin(tenant: string, userId: string) {
 }
 
 /**
+ * Normalize date string to ISO format (YYYY-MM-DD)
+ * Handles formats: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, etc.
+ */
+function normalizeDate(dateStr: string): string | null {
+  if (!dateStr) return null;
+  
+  try {
+    // Try to parse the date
+    // Handle MM/DD/YYYY or DD/MM/YYYY format
+    const parts = dateStr.split(/[\/\-]/);
+    if (parts.length === 3) {
+      let year: number, month: number, day: number;
+      
+      // If first part is 4 digits, it's YYYY-MM-DD or YYYY/DD/MM
+      if (parts[0].length === 4) {
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+      } else {
+        // Assume MM/DD/YYYY (US format) or DD/MM/YYYY
+        // Try MM/DD/YYYY first (most common in US quotes)
+        month = parseInt(parts[0], 10);
+        day = parseInt(parts[1], 10);
+        year = parseInt(parts[2], 10);
+        
+        // If day > 12, it's likely DD/MM/YYYY
+        if (day > 12 && month <= 12) {
+          // Swap day and month
+          const temp = day;
+          day = month;
+          month = temp;
+        }
+      }
+      
+      // Validate and format
+      if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+    
+    // Try parsing as-is (might already be ISO format)
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+  } catch (error) {
+    debugApi('Date Normalization Error', {
+      dateStr,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  
+  return null;
+}
+
+/**
  * Extract structured data from Datadog quote PDF
  */
 function parseDatadogQuotePDF(text: string): any {
@@ -38,8 +94,10 @@ function parseDatadogQuotePDF(text: string): any {
     count: dates.length,
   });
   if (dates.length >= 2) {
-    quote.contractStartDate = dates[0][1];
-    quote.contractEndDate = dates[1][1];
+    const normalizedStart = normalizeDate(dates[0][1]);
+    const normalizedEnd = normalizeDate(dates[1][1]);
+    if (normalizedStart) quote.contractStartDate = normalizedStart;
+    if (normalizedEnd) quote.contractEndDate = normalizedEnd;
   }
 
   // Also try to find dates in format: 9/1/2025 or 2025-09-01
@@ -50,8 +108,10 @@ function parseDatadogQuotePDF(text: string): any {
     count: allDates.length,
   });
   if (allDates.length >= 2 && !quote.contractStartDate) {
-    quote.contractStartDate = allDates[0][1];
-    quote.contractEndDate = allDates[1][1];
+    const normalizedStart = normalizeDate(allDates[0][1]);
+    const normalizedEnd = normalizeDate(allDates[1][1]);
+    if (normalizedStart) quote.contractStartDate = normalizedStart;
+    if (normalizedEnd) quote.contractEndDate = normalizedEnd;
   }
 
   // Extract plan name
@@ -118,29 +178,47 @@ function parseDatadogQuotePDF(text: string): any {
       // Handle multi-line entries: if current line doesn't have USD prices, try to merge with next line(s)
       // This handles cases like "Indexed Spans (15 Day Retention Period)" on one line and "80 M Analyzed" on next
       // Or "Indexed Spans (15 Day Retention Period) 80 M Analyzed" on one line and "USD 2.04 per M..." on next
-      if (!line.match(/USD\s*[\d.]+/i) && i + 1 < lines.length) {
+      // Continue merging until we find USD prices or reach 3 lines total
+      let mergeCount = 0;
+      const maxMerges = 2; // Can merge up to 2 additional lines (total 3 lines)
+      const originalLineIndex = i;
+      
+      while (!line.match(/USD\s*[\d.]+/i) && mergeCount < maxMerges && i + 1 < lines.length) {
         const nextLine = lines[i + 1]?.trim() || '';
-        // If next line has a number (quantity), USD prices, or looks like a continuation, merge them
-        if (nextLine.match(/^\d+/) || nextLine.match(/USD/i) || nextLine.length > 0) {
+        
+        // Check if we should merge:
+        // - Next line has USD prices (always merge - this is the most important case)
+        // - Next line starts with a number (quantity)
+        // - Current line ends with quantity pattern (like "80 M Analyzed" or "100 K")
+        // - Current line contains service name patterns that typically need merge (Indexed Spans, LLM Observability)
+        // - Next line is not empty and looks like continuation (not a header or total)
+        const hasServiceNameNeedingMerge = line.match(/(Indexed\s+Spans|LLM\s+Observability)/i);
+        const nextLineStartsWithServiceWord = nextLine.match(/^(Spans|Requests|Sessions|Invocations)/i);
+        const currentLineEndsWithQuantity = line.match(/\d+\s*[MK]\s*[A-Za-z]+$/i);
+        
+        // For services that need merge, be more aggressive - continue until we find USD
+        const shouldMerge = 
+          nextLine.match(/USD/i) ||
+          nextLine.match(/^\d+/) ||
+          currentLineEndsWithQuantity ||
+          (hasServiceNameNeedingMerge && nextLine.length > 0 && !nextLine.match(/^(SUBTOTAL|ADDITIONAL|ADJUSTMENT|Page \d+|SERVICE|QUANTITY|PRICE|Audit)/i)) ||
+          (nextLineStartsWithServiceWord && hasServiceNameNeedingMerge) ||
+          (nextLine.length > 0 && !nextLine.match(/^(SUBTOTAL|ADDITIONAL|ADJUSTMENT|Page \d+|SERVICE|QUANTITY|PRICE|Audit)/i));
+        
+        if (shouldMerge) {
           line = line + ' ' + nextLine;
           i++; // Skip next line since we merged it
+          mergeCount++;
           debugApi('Merged Multi-line Entry', {
-            originalLine: lines[i - 1],
+            originalLineIndex,
+            mergeCount,
+            originalLine: lines[originalLineIndex],
             nextLine: nextLine,
             merged: line,
           });
-          
-          // If still no USD prices, try one more line
-          if (!line.match(/USD\s*[\d.]+/i) && i + 1 < lines.length) {
-            const nextNextLine = lines[i + 1]?.trim() || '';
-            if (nextNextLine.match(/USD/i)) {
-              line = line + ' ' + nextNextLine;
-              i++; // Skip this line too
-              debugApi('Merged Additional Line', {
-                merged: line,
-              });
-            }
-          }
+        } else {
+          // No more lines to merge
+          break;
         }
       }
 
@@ -150,31 +228,196 @@ function parseDatadogQuotePDF(text: string): any {
       // Also handle cases like: "Containers1,300USD 1.00 per ContainerUSD 0.90 per Container"
       // And cases like: "Indexed Spans (15 Day Retention Period) 80 M Analyzed" followed by price on next line
       
-      // Match pattern: Service name (text until number), quantity (number with M/K), USD, list price, "per", unit, USD, sales price
-      // More flexible: service name ends before a number, then quantity (with M/K), then USD prices
-      // Try multiple patterns to handle different formats
-      let match = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*USD\s*([\d.]+)\s*per\s*[^U]*USD\s*([\d.]+)/i);
+      // Improved parsing: First find USD prices, then work backwards to find the quantity
+      // This avoids capturing numbers inside parentheses like "(7 Day Retention Period)" or "(15 months)"
+      let match = null;
       
-      // If first pattern doesn't match, try without "per" in between (some formats might be different)
+      // Find all USD prices in the line
+      const priceMatches = Array.from(line.matchAll(/USD\s*([\d.]+)/gi));
+      if (priceMatches.length >= 2) {
+        const firstPriceIndex = line.indexOf(priceMatches[0][0]);
+        
+        // Extract everything before the first USD price - this should contain service name and quantity
+        const beforePrice = line.substring(0, firstPriceIndex).trim();
+        
+        // Remove text inside parentheses to avoid matching numbers from descriptions
+        // Example: "Log Events (7 Day Retention Period)4,000 M" -> "Log Events 4,000 M"
+        const withoutParentheses = beforePrice.replace(/\([^)]*\)/g, '').trim();
+        
+        // Remove units that appear before USD prices (like "GB", "M", "K") that are part of the quantity format
+        // Example: "Ingested Spans18,000 GB" -> "Ingested Spans18,000"
+        // But keep units that are part of the quantity (like "80 M" or "100 K")
+        // Pattern: Look for quantity patterns that may have units after them but before USD
+        const cleanedBeforePrice = withoutParentheses.replace(/\s+(GB|MB|TB)(?=\s*USD|$)/gi, '').trim();
+        
+        // Find the last number (with optional M/K suffix and commas) before the USD prices
+        // This should be the actual quantity
+        // Pattern: number with optional commas, optional space, optional M or K
+        // Also handle cases where there might be a unit word after the number (like "18,000 GB" or "80 M Analyzed Spans")
+        // For Indexed Spans: "80 M Analyzed Spans" -> quantity is "80 M" (Analyzed Spans is unit description)
+        // For LLM: "100 K" -> quantity is "100 K"
+        const quantityMatch = cleanedBeforePrice.match(/(\d+(?:,\d+)*(?:\s*[MK])?)\s*(?:GB|MB|TB|Analyzed(?:\s+Spans)?|Sessions|Requests|Invocations)?\s*$/i);
+        
+        if (quantityMatch) {
+          // Extract just the quantity part (number with optional M/K)
+          // For "80 M Analyzed Spans", this captures "80 M"
+          // For "100 K", this captures "100 K"
+          const quantityStr = quantityMatch[1].trim();
+          
+          // Find where this quantity appears in the original string (before removing parentheses and units)
+          // We need to find it in the original to get the correct service name
+          // Escape special regex characters in quantity string
+          const escapedQuantity = quantityStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          // Look for the quantity pattern, possibly followed by a unit word, at the end of beforePrice
+          const quantityPattern = new RegExp(escapedQuantity + '\\s*(?:GB|MB|TB|Analyzed|Sessions|Requests|Invocations)?\\s*$', 'i');
+          const quantityMatchInOriginal = beforePrice.match(quantityPattern);
+          
+          if (quantityMatchInOriginal) {
+            const quantityIndex = beforePrice.lastIndexOf(quantityMatchInOriginal[0]);
+            let serviceName = beforePrice.substring(0, quantityIndex).trim();
+            
+            // Clean up service name - remove trailing parentheses content if any
+            // Also remove any trailing text that looks like part of a unit description
+            serviceName = serviceName.replace(/\s*\([^)]*$/, '').trim();
+            serviceName = serviceName.replace(/\s+(Analyzed|Sessions|Requests|Invocations|GB|MB|TB)$/i, '').trim();
+            
+            if (serviceName.length > 0) {
+              match = [null, serviceName, quantityStr, priceMatches[0][1], priceMatches[1][1]];
+            }
+          } else {
+            // If exact match not found, try to find quantity anywhere in beforePrice
+            // This handles cases where quantity might be separated by text
+            const allQuantityMatches = Array.from(beforePrice.matchAll(/(\d+(?:,\d+)*(?:\s*[MK])?)/gi));
+            if (allQuantityMatches.length > 0) {
+              // Use the last match (closest to USD prices)
+              const lastMatch = allQuantityMatches[allQuantityMatches.length - 1];
+              const foundQuantity = lastMatch[0].trim();
+              const quantityIndex = beforePrice.lastIndexOf(lastMatch[0]);
+              let serviceName = beforePrice.substring(0, quantityIndex).trim();
+              
+              // Clean up service name - remove units that might have been captured
+              serviceName = serviceName.replace(/\s*\([^)]*$/, '').trim();
+              serviceName = serviceName.replace(/\s+(Analyzed|Sessions|Requests|Invocations|GB|MB|TB)$/i, '').trim();
+              
+              if (serviceName.length > 0) {
+                match = [null, serviceName, foundQuantity, priceMatches[0][1], priceMatches[1][1]];
+              }
+            }
+          }
+        }
+      }
+      
+      // Fallback to original pattern matching if improved approach didn't work
+      if (!match) {
+        match = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*USD\s*([\d.]+)\s*per\s*[^U]*USD\s*([\d.]+)/i);
+      }
+      
+      // If still no match, try without "per" in between
       if (!match) {
         match = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*USD\s*([\d.]+).*?USD\s*([\d.]+)/i);
       }
       
-      // If still no match, try to extract service name and quantity, then look for USD prices
-      // This handles cases where quantity might be in the middle: "Indexed Spans (15 Day Retention Period) 80 M Analyzed"
-      if (!match) {
-        // Try to find quantity anywhere in the line (with M/K suffix)
-        const quantityMatch = line.match(/(\d+(?:,\d+)*(?:\s*[MK])?)/);
-        if (quantityMatch) {
-          const quantityIndex = line.indexOf(quantityMatch[0]);
-          const serviceName = line.substring(0, quantityIndex).trim();
-          const quantityStr = quantityMatch[0].trim();
-          
-          // Look for USD prices
-          const priceMatches = Array.from(line.matchAll(/USD\s*([\d.]+)/gi));
-          if (priceMatches.length >= 2 && serviceName.length > 0) {
-            match = [null, serviceName, quantityStr, priceMatches[0][1], priceMatches[1][1]];
+      // Special fallback for cases with units between service name and quantity
+      // Example: "Ingested Spans18,000 GBUSD 0.10 per GBUSD 0.98 per GB"
+      if (!match && priceMatches.length >= 2) {
+        const firstPriceIndex = line.indexOf(priceMatches[0][0]);
+        const beforePrice = line.substring(0, firstPriceIndex).trim();
+        
+        // Try to match: ServiceName + Quantity + Unit + USD
+        const unitBeforePriceMatch = beforePrice.match(/^(.+?)(\d+(?:,\d+)*)\s*(GB|MB|TB|M|K)\s*$/i);
+        if (unitBeforePriceMatch) {
+          const serviceName = unitBeforePriceMatch[1].trim().replace(/\s*\([^)]*$/, '').trim();
+          const quantity = unitBeforePriceMatch[2].trim();
+          if (serviceName.length > 0) {
+            match = [null, serviceName, quantity, priceMatches[0][1], priceMatches[1][1]];
           }
+        }
+      }
+      
+      // Special fallback for Indexed Spans pattern
+      // From PDF: QUANTITY = "80 M Analyzed Spans", LIST PRICE = "USD 2.04 per M Analyzed Spans"
+      // Example: "Indexed Spans (15 Day Retention Period) 80 M Analyzed Spans USD 2.04..."
+      // Or after merge: "Indexed Spans (15 Day Retention Period) 80 M Analyzed Spans USD 2.04 per M Analyzed SpansUSD 1.53..."
+      // Also handle case where line might be just "Spans USD..." after merge (check previous lines)
+      if (!match && priceMatches.length >= 1) {
+        let indexedSpansMatch = null;
+        let serviceName = '';
+        let quantity = '';
+        
+        // Check if current line has "Indexed Spans"
+        if (line.match(/Indexed\s+Spans/i)) {
+          const firstPriceIndex = line.indexOf(priceMatches[0][0]);
+          const beforePrice = line.substring(0, firstPriceIndex).trim();
+          indexedSpansMatch = beforePrice.match(/Indexed\s+Spans[^(]*\([^)]*\)\s*(\d+(?:,\d+)*)\s*([MK])\s*(?:Analyzed(?:\s+Spans)?)?/i);
+          if (indexedSpansMatch) {
+            quantity = indexedSpansMatch[1] + ' ' + indexedSpansMatch[2];
+            serviceName = 'Indexed Spans (15 Day Retention Period)';
+          }
+        }
+        
+        // If not found and line starts with "Spans USD", check previous lines (up to 2 lines back)
+        if (!indexedSpansMatch && line.match(/^Spans\s+USD/i) && i > 0) {
+          // Check previous line
+          const prevLine = lines[i - 1]?.trim() || '';
+          if (prevLine.match(/Indexed/i) && prevLine.match(/\d+\s*[MK]/i)) {
+            // Previous line has "Indexed Spans (15 Day Retention Period) 80 M Analyzed"
+            const prevMatch = prevLine.match(/Indexed\s+Spans[^(]*\([^)]*\)\s*(\d+(?:,\d+)*)\s*([MK])/i);
+            if (prevMatch) {
+              quantity = prevMatch[1] + ' ' + prevMatch[2];
+              serviceName = 'Indexed Spans (15 Day Retention Period)';
+              indexedSpansMatch = prevMatch;
+            }
+          }
+        }
+        
+        if (indexedSpansMatch && serviceName && quantity) {
+          // Use first price as list price, second as sales price (or same if only one)
+          const listPrice = priceMatches[0][1];
+          const salesPrice = priceMatches.length >= 2 ? priceMatches[1][1] : priceMatches[0][1];
+          match = [null, serviceName, quantity, listPrice, salesPrice];
+        }
+      }
+      
+      // Special fallback for LLM Observability pattern
+      // From PDF: QUANTITY = "100 K", LIST PRICE = "USD 10.00 per 10K LLM Requests"
+      // Example: "LLM Observability100 K USD 10.00 per 10K LLM Requests USD 8.00..."
+      // Or: "LLM Observability100 K USD 10.00 per" (incomplete line that needs merge)
+      // Or: "10K LLM Requests USD 8.00 per 10K LLM Requests" (after merge, check previous line)
+      if (!match && priceMatches.length >= 1) {
+        let llmMatch = null;
+        let serviceName = '';
+        let quantity = '';
+        
+        // Check if current line has "LLM Observability"
+        if (line.match(/LLM\s+Observability/i)) {
+          const firstPriceIndex = line.indexOf(priceMatches[0][0]);
+          const beforePrice = line.substring(0, firstPriceIndex).trim();
+          llmMatch = beforePrice.match(/LLM\s+Observability\s*(\d+(?:,\d+)*)\s*([MK])/i);
+          if (llmMatch) {
+            quantity = llmMatch[1] + ' ' + llmMatch[2];
+            serviceName = 'LLM Observability';
+          }
+        }
+        
+        // If not found and line starts with "10K LLM Requests" or similar, check previous line
+        if (!llmMatch && line.match(/10K\s+LLM\s+Requests/i) && i > 0) {
+          const prevLine = lines[i - 1]?.trim() || '';
+          if (prevLine.match(/LLM\s+Observability/i) && prevLine.match(/\d+\s*[MK]/i)) {
+            // Previous line has "LLM Observability100 K USD 10.00 per"
+            const prevMatch = prevLine.match(/LLM\s+Observability\s*(\d+(?:,\d+)*)\s*([MK])/i);
+            if (prevMatch) {
+              quantity = prevMatch[1] + ' ' + prevMatch[2];
+              serviceName = 'LLM Observability';
+              llmMatch = prevMatch;
+            }
+          }
+        }
+        
+        if (llmMatch && serviceName && quantity) {
+          // Use first price as list price, second as sales price (or same if only one)
+          const listPrice = priceMatches[0][1];
+          const salesPrice = priceMatches.length >= 2 ? priceMatches[1][1] : priceMatches[0][1];
+          match = [null, serviceName, quantity, listPrice, salesPrice];
         }
       }
       
@@ -204,32 +447,8 @@ function parseDatadogQuotePDF(text: string): any {
           continue;
         }
 
-        // Extract quantity (remove commas, handle "M", "K" suffixes)
-        let quantity = 0;
-        const cleanQuantityStr = quantityStr.replace(/,/g, '').trim();
-        
-        if (cleanQuantityStr.match(/[Mm]/)) {
-          const num = parseFloat(cleanQuantityStr.replace(/[Mm]/g, ''));
-          quantity = num * 1000000;
-        } else if (cleanQuantityStr.match(/[Kk]/)) {
-          const num = parseFloat(cleanQuantityStr.replace(/[Kk]/g, ''));
-          quantity = num * 1000;
-        } else {
-          quantity = parseFloat(cleanQuantityStr) || 0;
-        }
-
-        // Extract list price
-        const listPrice = parseFloat(listPriceStr) || 0;
-
-        debugApi('Service Row Parsed', {
-          serviceName,
-          quantityStr,
-          quantity,
-          listPrice,
-          line,
-        });
-
-        // Extract unit from service name
+        // Extract unit from service name FIRST (before quantity conversion)
+        // This is needed to determine if we should convert the quantity
         let unit = 'units';
         const serviceNameLower = serviceName.toLowerCase();
         
@@ -270,6 +489,52 @@ function parseDatadogQuotePDF(text: string): any {
         } else if (serviceNameLower.includes('apm') && serviceNameLower.includes('enterprise')) {
           unit = 'hosts';
         }
+
+        // Extract quantity (remove commas, handle "M", "K" suffixes)
+        // IMPORTANT: If the unit already contains "M" or "K", don't convert the quantity
+        // For example: "1 M" with unit "M invocations" should be quantity = 1, not 1,000,000
+        // Units that already indicate scale: "M invocations", "M Analyzed Spans", "M", "10K LLM Requests", "1K", "10K", "1K Sessions"
+        let quantity = 0;
+        const cleanQuantityStr = quantityStr.replace(/,/g, '').trim();
+        
+        // Check if unit already indicates the scale (contains M or K)
+        // Units like "M invocations", "M Analyzed Spans", "M", "10K LLM Requests", "1K", "10K", "1K Sessions"
+        const unitHasM = /M(\s|$)/.test(unit); // "M " or "M" at end
+        const unitHasK = /(10K|1K|K(\s|$))/.test(unit); // "10K", "1K", "K ", or "K" at end
+        
+        if (cleanQuantityStr.match(/[Mm]/) && !unitHasM) {
+          // Quantity has "M" but unit doesn't - convert to base unit
+          // Example: "1,000 M" with unit "GB" → quantity = 1,000,000,000
+          const num = parseFloat(cleanQuantityStr.replace(/[Mm]/g, ''));
+          quantity = num * 1000000;
+        } else if (cleanQuantityStr.match(/[Kk]/) && !unitHasK) {
+          // Quantity has "K" but unit doesn't - convert to base unit
+          // Example: "5 K" with unit "hosts" → quantity = 5,000
+          const num = parseFloat(cleanQuantityStr.replace(/[Kk]/g, ''));
+          quantity = num * 1000;
+        } else {
+          // No conversion needed - quantity is already in the correct unit
+          // Remove M/K suffix if present (since unit already indicates the scale)
+          // Example: "1 M" with unit "M invocations" → quantity = 1
+          // Example: "80 M" with unit "M Analyzed Spans" → quantity = 80
+          // Example: "1 K" with unit "1K Sessions" → quantity = 1
+          const numStr = cleanQuantityStr.replace(/[MmKk]/g, '');
+          quantity = parseFloat(numStr) || 0;
+        }
+
+        // Extract list price
+        const listPrice = parseFloat(listPriceStr) || 0;
+
+        debugApi('Service Row Parsed', {
+          serviceName,
+          quantityStr,
+          quantity,
+          listPrice,
+          unit,
+          unitHasM,
+          unitHasK,
+          line,
+        });
 
         if (quantity > 0 && listPrice > 0) {
           quote.services.push({

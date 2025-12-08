@@ -101,23 +101,35 @@ function mapQuoteServiceNameToServiceKey(serviceName: string): string | null {
 
 /**
  * Parse quantity from quote (handles different formats)
+ * IMPORTANT: If the unit already contains "M" or "K", don't convert the quantity
+ * For example: quantity "1 M" with unit "M invocations" should be 1, not 1,000,000
  */
 function parseQuantity(quantity: number | string, unit?: string): number {
   if (typeof quantity === 'number') {
     return quantity;
   }
 
+  // Check if unit already indicates the scale (contains M or K)
+  // Units like "M invocations", "M Analyzed Spans", "M", "10K LLM Requests", "1K", "10K", "1K Sessions"
+  const unitHasM = unit ? /M(\s|$)/.test(unit) : false;
+  const unitHasK = unit ? /(10K|1K|K(\s|$))/.test(unit) : false;
+
   // Handle string quantities like "1 M", "100K", etc.
   const str = String(quantity).trim().toUpperCase();
   
-  if (str.includes('M')) {
+  if (str.includes('M') && !unitHasM) {
+    // Quantity has "M" but unit doesn't - convert to base unit
     return parseFloat(str.replace('M', '').trim()) * 1000000;
   }
-  if (str.includes('K')) {
+  if (str.includes('K') && !unitHasK) {
+    // Quantity has "K" but unit doesn't - convert to base unit
     return parseFloat(str.replace('K', '').trim()) * 1000;
   }
   
-  return parseFloat(str) || 0;
+  // No conversion needed - quantity is already in the correct unit
+  // Remove M/K suffix if present (since unit already indicates the scale)
+  const numStr = str.replace(/[MK]/g, '');
+  return parseFloat(numStr) || 0;
 }
 
 /**

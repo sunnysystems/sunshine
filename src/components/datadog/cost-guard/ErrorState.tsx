@@ -11,6 +11,7 @@ interface ErrorStateProps {
   message?: string;
   onRetry?: () => void;
   rateLimitError?: boolean;
+  timeoutError?: boolean;
   retryAfter?: number; // seconds
 }
 
@@ -19,6 +20,7 @@ export function ErrorState({
   message = 'Failed to load Cost Guard data. Please try again.',
   onRetry,
   rateLimitError = false,
+  timeoutError = false,
   retryAfter,
 }: ErrorStateProps) {
   const { t } = useTranslation();
@@ -55,7 +57,9 @@ export function ErrorState({
 
   const displayTitle = rateLimitError
     ? t('datadog.api.rateLimit.title') || 'Rate Limit Exceeded'
-    : title;
+    : timeoutError
+      ? 'Request Timeout'
+      : title;
 
   const displayMessage = rateLimitError
     ? countdown !== null && countdown > 0
@@ -63,7 +67,9 @@ export function ErrorState({
         `Retrying automatically in ${countdown} seconds...`
       : t('datadog.api.rateLimit.waiting') ||
         'Waiting for rate limit to reset. Please wait...'
-    : message;
+    : timeoutError
+      ? 'The request took too long to complete. This may happen when fetching data for many services. Please try again.'
+      : message;
 
   return (
     <Alert

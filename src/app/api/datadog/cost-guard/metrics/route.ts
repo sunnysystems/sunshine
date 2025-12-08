@@ -10,6 +10,7 @@ import {
   getUsageData,
   getOrganizationIdFromTenant,
   DatadogRateLimitError,
+  DatadogTimeoutError,
 } from '@/lib/datadog/client';
 import {
   calculateProjection,
@@ -20,6 +21,7 @@ import {
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping, SERVICE_MAPPINGS } from '@/lib/datadog/cost-guard/service-mapping';
+import { initProgress, updateProgress, clearProgress } from '@/lib/datadog/cost-guard/progress';
 import type { ServiceUsage } from '@/lib/datadog/cost-guard/types';
 import { debugApi, logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -173,8 +175,11 @@ export async function GET(request: NextRequest) {
       const fetchStartTime = Date.now();
       const serviceUsages: ServiceUsage[] = [];
 
-      // Fetch usage for each service in parallel
-      const usagePromises = services.map(async (service) => {
+      // Initialize progress tracking
+      initProgress(tenant, 'metrics', services.length);
+
+      // Fetch usage for each service sequentially to track progress
+      for (const service of services) {
         const mapping = getServiceMapping(service.service_key);
         if (!mapping) {
           debugApi(`No mapping found for service: ${service.service_key}`, {
@@ -182,7 +187,9 @@ export async function GET(request: NextRequest) {
             serviceName: service.service_name,
             timestamp: new Date().toISOString(),
           });
-          return null;
+          // Update progress after processing (even if no mapping)
+          updateProgress(tenant, 'metrics', service.service_name);
+          continue;
         }
 
         try {
@@ -200,7 +207,9 @@ export async function GET(request: NextRequest) {
               error: usageData.error,
               timestamp: new Date().toISOString(),
             });
-            return null;
+            // Update progress after processing (even if error)
+            updateProgress(tenant, 'metrics', service.service_name);
+            continue;
           }
 
           // Extract usage using the service-specific function
@@ -226,7 +235,7 @@ export async function GET(request: NextRequest) {
           const status = determineStatus(totalUsage, committed, threshold);
           const utilization = calculateUtilization(totalUsage, committed);
 
-          return {
+          serviceUsages.push({
             serviceKey: service.service_key,
             serviceName: service.service_name,
             usage: totalUsage,
@@ -238,20 +247,23 @@ export async function GET(request: NextRequest) {
             category: mapping.category,
             unit: service.unit,
             utilization,
-          } as ServiceUsage;
+          } as ServiceUsage);
+
+          // Update progress after successful processing
+          updateProgress(tenant, 'metrics', service.service_name);
         } catch (error) {
           debugApi(`Error processing service ${service.service_key}`, {
             serviceKey: service.service_key,
             error: error instanceof Error ? error.message : String(error),
             timestamp: new Date().toISOString(),
           });
-          return null;
+          // Update progress after processing (even if error)
+          updateProgress(tenant, 'metrics', service.service_name);
         }
-      });
+      }
 
-      const results = await Promise.all(usagePromises);
-      const validResults = results.filter((r): r is ServiceUsage => r !== null);
-      serviceUsages.push(...validResults);
+      // Clear progress after completion
+      clearProgress(tenant, 'metrics');
 
       const fetchDuration = Date.now() - fetchStartTime;
 
@@ -260,7 +272,7 @@ export async function GET(request: NextRequest) {
         tenant,
         duration: `${fetchDuration}ms`,
         servicesRequested: services.length,
-        servicesWithData: validResults.length,
+        servicesWithData: serviceUsages.length,
         timestamp: new Date().toISOString(),
       });
 
@@ -431,6 +443,19 @@ export async function GET(request: NextRequest) {
           error: error.message,
         },
         { status: 429 },
+      );
+    }
+
+    // Handle timeout errors specifically
+    if (error instanceof DatadogTimeoutError) {
+      logError(error, 'Datadog Timeout Error in Metrics Route');
+      return NextResponse.json(
+        {
+          message: 'Request timeout. The Datadog API took too long to respond. Please try again.',
+          timeout: true,
+          error: error.message,
+        },
+        { status: 504 },
       );
     }
 

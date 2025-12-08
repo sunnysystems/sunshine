@@ -41,6 +41,25 @@ export class DatadogRateLimitError extends Error {
 }
 
 /**
+ * Custom error class for Datadog timeout errors (504)
+ */
+export class DatadogTimeoutError extends Error {
+  public readonly statusCode: number = 504;
+  public readonly timestamp: Date;
+  public readonly attempt: number;
+
+  constructor(
+    message: string,
+    attempt: number = 1,
+  ) {
+    super(message);
+    this.name = 'DatadogTimeoutError';
+    this.timestamp = new Date();
+    this.attempt = attempt;
+  }
+}
+
+/**
  * Get Datadog credentials for an organization from vault
  */
 export async function getDatadogCredentials(
@@ -106,14 +125,37 @@ async function datadogRequest<T>(
     timestamp: new Date().toISOString(),
   });
 
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
   let response: Response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
   } catch (networkError) {
+    clearTimeout(timeoutId);
     const requestDuration = Date.now() - requestStartTime;
+    
+    // Check if it's a timeout/abort error
+    if (networkError instanceof Error && networkError.name === 'AbortError') {
+      debugApi('Datadog API Request Timeout', {
+        endpoint,
+        url,
+        method: options.method || 'GET',
+        duration: `${requestDuration}ms`,
+        message: 'Request exceeded 60s timeout',
+        timestamp: new Date().toISOString(),
+      });
+      throw new DatadogTimeoutError(
+        `Datadog API request timeout after ${requestDuration}ms`,
+      );
+    }
+    
     logError(networkError, 'Datadog API Network Error');
     debugApi('Datadog API Network Error Details', {
       endpoint,
@@ -192,6 +234,18 @@ async function datadogRequest<T>(
         retryAfter,
       );
     }
+
+    // Handle 504 Timeout errors specifically
+    if (response.status === 504) {
+      debugApi('Datadog API 504 Timeout', {
+        ...errorDetails,
+        message: 'Gateway timeout. The request took too long to complete.',
+      });
+
+      throw new DatadogTimeoutError(
+        `Datadog API gateway timeout: ${errorText}`,
+      );
+    }
     
     if (response.status === 404) {
       debugApi('Datadog API 404 Details', {
@@ -224,7 +278,7 @@ async function datadogRequest<T>(
 }
 
 /**
- * Make an authenticated request to Datadog API with automatic retry on rate limit
+ * Make an authenticated request to Datadog API with automatic retry on rate limit and timeout
  * Implements exponential backoff and respects Retry-After header
  */
 export async function datadogRequestWithRetry<T>(
@@ -233,13 +287,14 @@ export async function datadogRequestWithRetry<T>(
   options: RequestInit = {},
   maxRetries: number = 3,
 ): Promise<T> {
-  const delays = [1000, 2000, 4000]; // 1s, 2s, 4s
+  const rateLimitDelays = [1000, 2000, 4000]; // 1s, 2s, 4s for rate limits
+  const timeoutDelays = [2000, 4000, 8000]; // 2s, 4s, 8s for timeouts
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await datadogRequest<T>(endpoint, credentials, options);
     } catch (error) {
-      // Only retry on rate limit errors
+      // Retry on rate limit errors
       if (error instanceof DatadogRateLimitError) {
         // If this is the last attempt, throw the error
         if (attempt >= maxRetries) {
@@ -256,8 +311,8 @@ export async function datadogRequestWithRetry<T>(
         // Calculate delay: use Retry-After if available, otherwise exponential backoff
         const retryAfterMs = error.retryAfter
           ? error.retryAfter * 1000
-          : delays[attempt - 1] || delays[delays.length - 1];
-        const delay = Math.min(retryAfterMs, delays[delays.length - 1]);
+          : rateLimitDelays[attempt - 1] || rateLimitDelays[rateLimitDelays.length - 1];
+        const delay = Math.min(retryAfterMs, rateLimitDelays[rateLimitDelays.length - 1]);
 
         debugApi('Datadog API Rate Limit - Retrying', {
           endpoint,
@@ -275,7 +330,38 @@ export async function datadogRequestWithRetry<T>(
         continue;
       }
 
-      // For non-rate-limit errors, throw immediately
+      // Retry on timeout errors
+      if (error instanceof DatadogTimeoutError) {
+        // If this is the last attempt, throw the error
+        if (attempt >= maxRetries) {
+          debugApi('Datadog API Timeout - Max Retries Reached', {
+            endpoint,
+            attempt,
+            maxRetries,
+            timestamp: new Date().toISOString(),
+          });
+          throw error;
+        }
+
+        // Use exponential backoff for timeouts
+        const delay = timeoutDelays[attempt - 1] || timeoutDelays[timeoutDelays.length - 1];
+
+        debugApi('Datadog API Timeout - Retrying', {
+          endpoint,
+          attempt,
+          maxRetries,
+          delay: `${delay}ms`,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+        // Continue to next iteration (retry)
+        continue;
+      }
+
+      // For other errors, throw immediately
       throw error;
     }
   }
@@ -298,6 +384,23 @@ const PRODUCT_FAMILY_MAP: Record<string, string> = {
   synthetics: 'synthetics_api',
   custom_metrics: 'timeseries',
   ci_visibility: 'ci_app',
+};
+
+/**
+ * Map v2 product family names to v1 API endpoint names
+ * Based on Datadog OpenAPI v1 specification (deprecated endpoints)
+ */
+const V1_ENDPOINT_MAP: Record<string, string> = {
+  indexed_logs: 'logs',
+  indexed_spans: 'indexed-spans',
+  infra_hosts: 'hosts',
+  rum: 'rum',
+  synthetics_api: 'synthetics_api',
+  timeseries: 'timeseries',
+  ci_app: 'ci-app',
+  serverless: 'aws_lambda',
+  // Note: Some product families may not have v1 endpoints
+  // siem, code_security, llm_observability - verify if v1 endpoints exist
 };
 
 /**
@@ -391,7 +494,21 @@ export async function getUsageData(
     
     // For other errors, try v1 endpoint as fallback (deprecated but may still work)
     if (error instanceof Error) {
-      const v1Endpoint = `/api/v1/usage/${productFamily}`;
+      // Map v2 product family to v1 endpoint name
+      const v1EndpointName = V1_ENDPOINT_MAP[v2ProductFamily];
+      
+      if (!v1EndpointName) {
+        debugApi(`No v1 endpoint mapping found for ${v2ProductFamily}`, {
+          productFamily,
+          v2ProductFamily,
+          v2Endpoint: fullUrl,
+          originalError: error.message,
+          timestamp: new Date().toISOString(),
+        });
+        return { data: [], errors: [{ message: 'Endpoint not available and no v1 fallback' }] };
+      }
+
+      const v1Endpoint = `/api/v1/usage/${v1EndpointName}`;
       const v1Params = new URLSearchParams({
         start_hr: startHr,
         end_hr: endHr,
@@ -400,7 +517,10 @@ export async function getUsageData(
 
       debugApi('Trying Datadog v1 Endpoint as Fallback (deprecated)', {
         productFamily,
-        endpoint: v1Url,
+        v2ProductFamily,
+        v1EndpointName,
+        v1Endpoint: v1Url,
+        v2Endpoint: fullUrl,
         originalError: error.message,
         timestamp: new Date().toISOString(),
       });
@@ -415,6 +535,7 @@ export async function getUsageData(
         debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
           productFamily,
           v2ProductFamily,
+          v1EndpointName,
           v2Endpoint: fullUrl,
           v1Endpoint: v1Url,
           v2Error: error.message,

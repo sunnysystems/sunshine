@@ -9,6 +9,7 @@ import { SummaryCard } from '@/components/datadog/cost-guard/SummaryCard';
 import { TimelineCard } from '@/components/datadog/cost-guard/TimelineCard';
 import { ContractCardLoading, SummaryCardsLoading } from '@/components/datadog/cost-guard/LoadingState';
 import { ErrorState } from '@/components/datadog/cost-guard/ErrorState';
+import { ProgressIndicator } from '@/components/datadog/cost-guard/ProgressIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,8 +36,10 @@ export default function CostGuardContractPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rateLimitError, setRateLimitError] = useState(false);
+  const [timeoutError, setTimeoutError] = useState(false);
   const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [contractData, setContractData] = useState<ContractData | null>(null);
+  const [progress, setProgress] = useState({ progress: 0, total: 0, completed: 0, current: '' });
 
   // Extract tenant from pathname
   const tenant = useMemo(() => {
@@ -51,12 +54,32 @@ export default function CostGuardContractPage() {
       setLoading(true);
       setError(null);
       setRateLimitError(false);
+      setTimeoutError(false);
       setRetryAfter(undefined);
+      setProgress({ progress: 0, total: 0, completed: 0, current: '' });
+
+      // Start polling for progress
+      const progressInterval = setInterval(async () => {
+        try {
+          const progressRes = await fetch(
+            `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=summary`,
+          );
+          if (progressRes.ok) {
+            const progressData = await progressRes.json();
+            setProgress(progressData);
+          }
+        } catch {
+          // Ignore progress fetch errors
+        }
+      }, 500); // Poll every 500ms
 
       const [contractRes, summaryRes] = await Promise.all([
         fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`),
         fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`),
       ]);
+
+      // Clear progress polling
+      clearInterval(progressInterval);
 
       // Check for rate limit errors
       if (contractRes.status === 429 || summaryRes.status === 429) {
@@ -68,6 +91,18 @@ export default function CostGuardContractPage() {
         setRateLimitError(true);
         setRetryAfter(errorData.retryAfter || 60);
         setError(errorData.message || 'Rate limit exceeded');
+        setLoading(false);
+        return;
+      }
+
+      // Check for timeout errors
+      if (contractRes.status === 504 || summaryRes.status === 504) {
+        const errorResponse = contractRes.status === 504 ? contractRes : summaryRes;
+        const errorData = await errorResponse.json().catch(() => ({
+          message: 'Request timeout',
+        }));
+        setTimeoutError(true);
+        setError(errorData.message || 'Request timeout');
         setLoading(false);
         return;
       }
@@ -234,7 +269,17 @@ export default function CostGuardContractPage() {
               </p>
             </div>
           </header>
-          <SummaryCardsLoading />
+          <div className="space-y-4">
+            {progress.total > 0 && (
+              <ProgressIndicator
+                progress={progress.progress}
+                total={progress.total}
+                completed={progress.completed}
+                current={progress.current}
+              />
+            )}
+            <SummaryCardsLoading />
+          </div>
         </section>
       </div>
     );
@@ -247,6 +292,7 @@ export default function CostGuardContractPage() {
           message={error || undefined}
           onRetry={fetchData}
           rateLimitError={rateLimitError}
+          timeoutError={timeoutError}
           retryAfter={retryAfter}
         />
       </div>

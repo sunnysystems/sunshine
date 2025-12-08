@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { Upload } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Upload, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,9 +13,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { useTranslation } from '@/hooks/useTranslation';
-import { SERVICE_MAPPINGS, getServicesByCategory } from '@/lib/datadog/cost-guard/service-mapping';
 import type { ServiceConfig } from '@/lib/datadog/cost-guard/types';
-import { createDefaultServices } from '@/lib/datadog/cost-guard/quote-importer';
+import { SERVICE_MAPPINGS, getServicesByCategory } from '@/lib/datadog/cost-guard/service-mapping';
 
 interface ServiceFormData {
   quantity: string;
@@ -34,13 +33,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function EditContractPage() {
   const { t } = useTranslation();
   const pathname = usePathname();
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract tenant from pathname
@@ -70,41 +69,39 @@ export default function EditContractPage() {
   }, []);
 
   // Load existing contract data
-  useEffect(() => {
+  const loadContract = useCallback(async () => {
     if (!tenant) return;
 
-    const loadContract = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch(
-          `/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`,
-        );
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`,
+      );
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.config) {
-            const config = data.config;
-            setPlanName(config.plan_name || 'Enterprise Observability');
-            setBillingCycle(config.billing_cycle || 'monthly');
-            setStartDate(config.contract_start_date || '');
-            setEndDate(config.contract_end_date || '');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.config) {
+          const config = data.config;
+          setPlanName(config.plan_name || 'Enterprise Observability');
+          setBillingCycle(config.billing_cycle || 'monthly');
+          setStartDate(config.contract_start_date || '');
+          setEndDate(config.contract_end_date || '');
 
-            // Load services data
-            if (data.services && Array.isArray(data.services) && data.services.length > 0) {
-              const servicesData: Record<string, ServiceFormData> = {};
-              data.services.forEach((service: any) => {
-                servicesData[service.service_key] = {
-                  quantity: String(service.quantity || 0),
-                  listPrice: String(service.list_price || 0),
-                  threshold: service.threshold !== null && service.threshold !== undefined
-                    ? String(service.threshold)
-                    : '',
-                };
-              });
-              setServices(servicesData);
-            }
+          // Load services data
+          if (data.services && Array.isArray(data.services) && data.services.length > 0) {
+            const servicesData: Record<string, ServiceFormData> = {};
+            data.services.forEach((service: { service_key: string; quantity: number; list_price: number; threshold: number | null }) => {
+              servicesData[service.service_key] = {
+                quantity: String(service.quantity || 0),
+                listPrice: String(service.list_price || 0),
+                threshold: service.threshold !== null && service.threshold !== undefined
+                  ? String(service.threshold)
+                  : '',
+              };
+            });
+            setServices(servicesData);
           } else {
-            // No config exists, use defaults
+            // No services, initialize with defaults
             const defaultServices: Record<string, ServiceFormData> = {};
             Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
               defaultServices[mapping.serviceKey] = {
@@ -114,23 +111,36 @@ export default function EditContractPage() {
               };
             });
             setServices(defaultServices);
-            // Set default dates (current month)
-            const now = new Date();
-            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-            setStartDate(firstDay.toISOString().split('T')[0]);
-            setEndDate(lastDay.toISOString().split('T')[0]);
           }
+        } else {
+          // No config exists, use defaults
+          const defaultServices: Record<string, ServiceFormData> = {};
+          Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+            defaultServices[mapping.serviceKey] = {
+              quantity: '0',
+              listPrice: '0',
+              threshold: '',
+            };
+          });
+          setServices(defaultServices);
+          // Set default dates (current month)
+          const now = new Date();
+          const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+          const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          setStartDate(firstDay.toISOString().split('T')[0]);
+          setEndDate(lastDay.toISOString().split('T')[0]);
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load contract');
-      } finally {
-        setLoading(false);
       }
-    };
-
-    loadContract();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load contract');
+    } finally {
+      setLoading(false);
+    }
   }, [tenant]);
+
+  useEffect(() => {
+    loadContract();
+  }, [loadContract]);
 
   const handleSave = async () => {
     if (!tenant) return;
@@ -196,10 +206,11 @@ export default function EditContractPage() {
       }
 
       setSuccess(true);
-      // Redirect to contract page after a short delay
-      setTimeout(() => {
-        router.push(`/${tenant}/datadog/cost-guard/contract`);
-      }, 1500);
+      // Reload contract data to show updated values
+      setTimeout(async () => {
+        await loadContract();
+        setSuccess(false);
+      }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save contract');
     } finally {
@@ -222,6 +233,75 @@ export default function EditContractPage() {
     setBillingCycle('monthly');
     setError(null);
     setSuccess(false);
+  };
+
+  const handleClearAll = async () => {
+    if (!tenant) return;
+
+    // Confirm action
+    if (!confirm('Are you sure you want to clear all contract data? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setClearing(true);
+      setError(null);
+      setSuccess(false);
+
+      // Reset all form fields
+      const defaultServices: Record<string, ServiceFormData> = {};
+      Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+        defaultServices[mapping.serviceKey] = {
+          quantity: '0',
+          listPrice: '0',
+          threshold: '',
+        };
+      });
+      setServices(defaultServices);
+      setPlanName('Enterprise Observability');
+      setBillingCycle('monthly');
+      
+      // Set default dates (current month)
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      setStartDate(firstDay.toISOString().split('T')[0]);
+      setEndDate(lastDay.toISOString().split('T')[0]);
+
+      // Save cleared contract to database
+      const response = await fetch('/api/datadog/cost-guard/contract', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          tenant,
+          contractStartDate: firstDay.toISOString().split('T')[0],
+          contractEndDate: lastDay.toISOString().split('T')[0],
+          planName: 'Enterprise Observability',
+          billingCycle: 'monthly',
+          contractedSpend: 0,
+          services: [], // Empty services array
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to clear contract');
+      }
+
+      setSuccess(true);
+      // Reload contract data to show cleared values
+      setTimeout(async () => {
+        await loadContract();
+        setSuccess(false);
+      }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear contract');
+    } finally {
+      setClearing(false);
+    }
   };
 
   const updateService = (
@@ -283,17 +363,22 @@ export default function EditContractPage() {
 
       if (data.success && data.services) {
         // Update form with imported data
-        if (data.quoteData.contractStartDate) {
-          setStartDate(data.quoteData.contractStartDate);
+        const newStartDate = data.quoteData.contractStartDate;
+        const newEndDate = data.quoteData.contractEndDate;
+        const newPlanName = data.quoteData.planName;
+        const newBillingCycle = data.quoteData.billingCycle;
+        
+        if (newStartDate) {
+          setStartDate(newStartDate);
         }
-        if (data.quoteData.contractEndDate) {
-          setEndDate(data.quoteData.contractEndDate);
+        if (newEndDate) {
+          setEndDate(newEndDate);
         }
-        if (data.quoteData.planName) {
-          setPlanName(data.quoteData.planName);
+        if (newPlanName) {
+          setPlanName(newPlanName);
         }
-        if (data.quoteData.billingCycle) {
-          setBillingCycle(data.quoteData.billingCycle as 'monthly' | 'quarterly' | 'annual');
+        if (newBillingCycle) {
+          setBillingCycle(newBillingCycle as 'monthly' | 'quarterly' | 'annual');
         }
 
         // Update services
@@ -312,8 +397,56 @@ export default function EditContractPage() {
           ...importedServices,
         }));
 
+        // Automatically update contract config with dates from PDF
+        if (newStartDate || newEndDate || newPlanName || newBillingCycle) {
+          try {
+            // Calculate total contracted spend from imported services
+            const importedTotalSpend = data.services.reduce((total: number, service: ServiceConfig) => {
+              return total + (service.committedValue || 0);
+            }, 0);
+
+            // Build services array for saving
+            const servicesToSave: ServiceConfig[] = data.services.filter(
+              (service: ServiceConfig) => service.quantity > 0
+            );
+
+            // Update contract config with dates and other metadata from PDF
+            const updateResponse = await fetch('/api/datadog/cost-guard/contract', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include',
+              body: JSON.stringify({
+                tenant,
+                contractStartDate: newStartDate || startDate,
+                contractEndDate: newEndDate || endDate,
+                planName: newPlanName || planName,
+                billingCycle: newBillingCycle || billingCycle,
+                contractedSpend: importedTotalSpend,
+                services: servicesToSave,
+              }),
+            });
+
+            if (!updateResponse.ok) {
+              // Log error but don't fail the import
+              const errorData = await updateResponse.json().catch(() => ({}));
+              console.warn('Failed to update contract config with PDF dates:', errorData.message);
+            } else {
+              // Reload contract data to show updated values from PDF
+              await loadContract();
+            }
+          } catch (updateError) {
+            // Log error but don't fail the import
+            console.warn('Error updating contract config with PDF dates:', updateError);
+          }
+        } else {
+          // Even if dates weren't updated, reload to ensure consistency
+          await loadContract();
+        }
+
         setSuccess(true);
-        setTimeout(() => setSuccess(false), 5000);
+        setTimeout(() => setSuccess(false), 3000);
       }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Failed to import quote');
@@ -375,10 +508,22 @@ export default function EditContractPage() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" onClick={handleReset} disabled={saving}>
+            <Button 
+              variant="outline" 
+              onClick={handleReset} 
+              disabled={saving || clearing}
+            >
               {t('datadog.costGuard.contractEdit.actions.reset')}
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button 
+              variant="destructive" 
+              onClick={handleClearAll} 
+              disabled={saving || clearing}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {clearing ? 'Clearing...' : 'Clear All'}
+            </Button>
+            <Button onClick={handleSave} disabled={saving || clearing}>
               {saving ? 'Saving...' : t('datadog.costGuard.contractEdit.actions.save')}
             </Button>
           </div>
@@ -584,10 +729,22 @@ export default function EditContractPage() {
       ))}
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={handleReset} disabled={saving}>
+        <Button 
+          variant="outline" 
+          onClick={handleReset} 
+          disabled={saving || clearing}
+        >
           {t('datadog.costGuard.contractEdit.actions.reset')}
         </Button>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button 
+          variant="destructive" 
+          onClick={handleClearAll} 
+          disabled={saving || clearing}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          {clearing ? 'Clearing...' : 'Clear All'}
+        </Button>
+        <Button onClick={handleSave} disabled={saving || clearing}>
           {saving ? 'Saving...' : t('datadog.costGuard.contractEdit.actions.save')}
         </Button>
       </div>
