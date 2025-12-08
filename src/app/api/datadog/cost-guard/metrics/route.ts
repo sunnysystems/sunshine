@@ -21,7 +21,7 @@ import {
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping, SERVICE_MAPPINGS } from '@/lib/datadog/cost-guard/service-mapping';
-import { initProgress, updateProgress, clearProgress } from '@/lib/datadog/cost-guard/progress';
+import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import type { ServiceUsage } from '@/lib/datadog/cost-guard/types';
 import { debugApi, logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -262,8 +262,8 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Clear progress after completion
-      clearProgress(tenant, 'metrics');
+      // Note: Progress will be automatically cleaned up by cleanupOldProgress() 
+      // after 5 minutes (called in /api/datadog/cost-guard/progress endpoint)
 
       const fetchDuration = Date.now() - fetchStartTime;
 

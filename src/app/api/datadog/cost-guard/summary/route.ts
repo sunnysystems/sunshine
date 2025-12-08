@@ -22,7 +22,7 @@ import {
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping } from '@/lib/datadog/cost-guard/service-mapping';
-import { initProgress, updateProgress, clearProgress } from '@/lib/datadog/cost-guard/progress';
+import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
 
@@ -212,8 +212,8 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Clear progress after completion
-      clearProgress(tenant, 'summary');
+      // Note: Progress will be automatically cleaned up by cleanupOldProgress() 
+      // after 5 minutes (called in /api/datadog/cost-guard/progress endpoint)
 
       // Calculate projected spend (based on trend and list prices)
       const avgTrend = allTrends.length > 0

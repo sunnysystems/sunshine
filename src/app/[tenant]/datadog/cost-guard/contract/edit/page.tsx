@@ -22,13 +22,7 @@ interface ServiceFormData {
   threshold: string;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  infrastructure: 'Infrastructure',
-  apm: 'APM & Tracing',
-  logs: 'Logs',
-  observability: 'Observability & Testing',
-  security: 'Security & Compliance',
-};
+// Category labels will be retrieved from translations
 
 export default function EditContractPage() {
   const { t } = useTranslation();
@@ -132,7 +126,7 @@ export default function EditContractPage() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load contract');
+      setError(err instanceof Error ? err.message : t('datadog.costGuard.contractEdit.errors.load'));
     } finally {
       setLoading(false);
     }
@@ -202,7 +196,7 @@ export default function EditContractPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to save contract');
+        throw new Error(errorData.message || t('datadog.costGuard.contractEdit.errors.save'));
       }
 
       setSuccess(true);
@@ -212,7 +206,7 @@ export default function EditContractPage() {
         setSuccess(false);
       }, 1000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save contract');
+      setError(err instanceof Error ? err.message : t('datadog.costGuard.contractEdit.errors.save'));
     } finally {
       setSaving(false);
     }
@@ -239,7 +233,7 @@ export default function EditContractPage() {
     if (!tenant) return;
 
     // Confirm action
-    if (!confirm('Are you sure you want to clear all contract data? This action cannot be undone.')) {
+    if (!confirm(t('datadog.costGuard.contractEdit.clearConfirm'))) {
       return;
     }
 
@@ -250,12 +244,28 @@ export default function EditContractPage() {
 
       // Reset all form fields
       const defaultServices: Record<string, ServiceFormData> = {};
+      const clearedServices: ServiceConfig[] = [];
+      
       Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
         defaultServices[mapping.serviceKey] = {
           quantity: '0',
           listPrice: '0',
-          threshold: '',
+          threshold: '0', // Set threshold to '0' instead of empty string
         };
+        
+        // Create ServiceConfig with zero values for database
+        clearedServices.push({
+          serviceKey: mapping.serviceKey,
+          serviceName: mapping.serviceName,
+          productFamily: mapping.productFamily,
+          usageType: mapping.usageType,
+          quantity: 0,
+          listPrice: 0,
+          unit: mapping.unit,
+          committedValue: 0,
+          threshold: 0,
+          category: mapping.category,
+        });
       });
       setServices(defaultServices);
       setPlanName('Enterprise Observability');
@@ -268,7 +278,7 @@ export default function EditContractPage() {
       setStartDate(firstDay.toISOString().split('T')[0]);
       setEndDate(lastDay.toISOString().split('T')[0]);
 
-      // Save cleared contract to database
+      // Save cleared contract to database with all services set to 0
       const response = await fetch('/api/datadog/cost-guard/contract', {
         method: 'POST',
         headers: {
@@ -282,13 +292,13 @@ export default function EditContractPage() {
           planName: 'Enterprise Observability',
           billingCycle: 'monthly',
           contractedSpend: 0,
-          services: [], // Empty services array
+          services: clearedServices, // Send all services with zero values
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to clear contract');
+        throw new Error(errorData.message || t('datadog.costGuard.contractEdit.errors.clear'));
       }
 
       setSuccess(true);
@@ -298,7 +308,7 @@ export default function EditContractPage() {
         setSuccess(false);
       }, 1000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear contract');
+      setError(err instanceof Error ? err.message : t('datadog.costGuard.contractEdit.errors.clear'));
     } finally {
       setClearing(false);
     }
@@ -327,14 +337,14 @@ export default function EditContractPage() {
 
     // Validate file type
     if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
-      setUploadError('Please upload a PDF file');
+      setUploadError(t('datadog.costGuard.contractEdit.errors.uploadPdf'));
       return;
     }
 
     // Validate file size (10MB)
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      setUploadError('File size exceeds 10MB limit');
+      setUploadError(t('datadog.costGuard.contractEdit.errors.fileSize'));
       return;
     }
 
@@ -356,7 +366,7 @@ export default function EditContractPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to import quote');
+        throw new Error(errorData.message || t('datadog.costGuard.contractEdit.errors.import'));
       }
 
       const data = await response.json();
@@ -449,7 +459,7 @@ export default function EditContractPage() {
         setTimeout(() => setSuccess(false), 3000);
       }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Failed to import quote');
+      setUploadError(err instanceof Error ? err.message : t('datadog.costGuard.contractEdit.errors.import'));
     } finally {
       setUploading(false);
       // Reset file input
@@ -473,7 +483,7 @@ export default function EditContractPage() {
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading contract...</p>
+          <p className="text-sm text-muted-foreground">{t('datadog.costGuard.contractEdit.loading')}</p>
         </div>
       </div>
     );
@@ -509,22 +519,15 @@ export default function EditContractPage() {
           </div>
           <div className="flex gap-3">
             <Button 
-              variant="outline" 
-              onClick={handleReset} 
-              disabled={saving || clearing}
-            >
-              {t('datadog.costGuard.contractEdit.actions.reset')}
-            </Button>
-            <Button 
               variant="destructive" 
               onClick={handleClearAll} 
               disabled={saving || clearing}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              {clearing ? 'Clearing...' : 'Clear All'}
+              {clearing ? t('datadog.costGuard.contractEdit.clearing') : t('datadog.costGuard.contractEdit.clearAll')}
             </Button>
             <Button onClick={handleSave} disabled={saving || clearing}>
-              {saving ? 'Saving...' : t('datadog.costGuard.contractEdit.actions.save')}
+              {saving ? t('datadog.costGuard.contractEdit.saving') : t('datadog.costGuard.contractEdit.actions.save')}
             </Button>
           </div>
         </div>
@@ -535,7 +538,7 @@ export default function EditContractPage() {
         )}
         {success && (
           <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">
-            Contract saved successfully! Redirecting...
+            {t('datadog.costGuard.contractEdit.success')}
           </div>
         )}
       </div>
@@ -570,7 +573,7 @@ export default function EditContractPage() {
                 ) : (
                   <>
                     <Upload className="mr-2 h-4 w-4" />
-                    Import PDF Quote
+                    {t('datadog.costGuard.contractEdit.importPdf')}
                   </>
                 )}
               </Button>
@@ -589,19 +592,19 @@ export default function EditContractPage() {
               id="contractName"
               value={planName}
               onChange={(e) => setPlanName(e.target.value)}
-              placeholder="Enterprise Observability"
+              placeholder={t('datadog.costGuard.contractEdit.fields.contractName')}
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="cycle">{t('datadog.costGuard.contractEdit.fields.contractCycle')}</Label>
             <Select value={billingCycle} onValueChange={(value: 'monthly' | 'quarterly' | 'annual') => setBillingCycle(value)}>
               <SelectTrigger id="cycle">
-                <SelectValue placeholder="Monthly" />
+                <SelectValue placeholder={t('datadog.costGuard.contractEdit.billingCycle.placeholder')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="monthly">{t('datadog.costGuard.contractEdit.billingCycle.monthly')}</SelectItem>
                 <SelectItem value="quarterly">Quarterly</SelectItem>
-                <SelectItem value="annual">Annual</SelectItem>
+                <SelectItem value="annual">{t('datadog.costGuard.contractEdit.billingCycle.annual')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -639,7 +642,7 @@ export default function EditContractPage() {
         <Card key={category} className="border-border/60 bg-card/95 shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">
-              {CATEGORY_LABELS[category] || category}
+              {t(`datadog.costGuard.contractEdit.categories.${category}`) || category}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -729,13 +732,6 @@ export default function EditContractPage() {
       ))}
 
       <div className="flex justify-end gap-3">
-        <Button 
-          variant="outline" 
-          onClick={handleReset} 
-          disabled={saving || clearing}
-        >
-          {t('datadog.costGuard.contractEdit.actions.reset')}
-        </Button>
         <Button 
           variant="destructive" 
           onClick={handleClearAll} 

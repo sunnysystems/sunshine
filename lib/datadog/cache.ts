@@ -36,7 +36,10 @@ export async function getRedisClient(): Promise<RedisClient | null> {
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
-      lazyConnect: true,
+      lazyConnect: false, // Connect immediately
+      enableReadyCheck: true,
+      enableOfflineQueue: false,
+      connectTimeout: 10000, // 10 seconds timeout
     });
 
     redisClient.on('error', (error: Error) => {
@@ -52,6 +55,29 @@ export async function getRedisClient(): Promise<RedisClient | null> {
         timestamp: new Date().toISOString(),
       });
     });
+
+    redisClient.on('ready', () => {
+      debugApi('Redis ready', {
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Wait for connection to be ready (ioredis connects automatically when lazyConnect is false)
+    // But we can check status to ensure it's working
+    try {
+      // Check if already connected
+      if (redisClient.status !== 'ready' && redisClient.status !== 'connect') {
+        // If not connected, wait a bit for auto-connect
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } catch (connectError) {
+      debugApi('Redis connection check error', {
+        error: connectError instanceof Error ? connectError.message : String(connectError),
+        status: redisClient.status,
+        timestamp: new Date().toISOString(),
+      });
+      // Continue anyway - operations will fail gracefully
+    }
 
     return redisClient;
   } catch (error) {
@@ -76,6 +102,30 @@ export function generateCacheKey(
 }
 
 /**
+ * Check if Redis client is connected
+ */
+async function isRedisConnected(client: RedisClient): Promise<boolean> {
+  try {
+    const status = client.status;
+    if (status === 'ready' || status === 'connect') {
+      return true;
+    }
+    // Try to reconnect if not connected
+    if (status === 'end' || status === 'close') {
+      try {
+        await client.connect();
+        return client.status === 'ready' || client.status === 'connect';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get cached usage data from Redis
  * Returns null if cache miss or Redis unavailable
  */
@@ -84,6 +134,21 @@ export async function getCachedUsageData(
 ): Promise<any | null> {
   const client = await getRedisClient();
   if (!client) {
+    debugApi('Redis client not available', {
+      key,
+      timestamp: new Date().toISOString(),
+    });
+    return null;
+  }
+
+  // Check connection status
+  const isConnected = await isRedisConnected(client);
+  if (!isConnected) {
+    debugApi('Redis not connected', {
+      key,
+      status: client.status,
+      timestamp: new Date().toISOString(),
+    });
     return null;
   }
 
@@ -124,6 +189,21 @@ export async function setCachedUsageData(
 ): Promise<void> {
   const client = await getRedisClient();
   if (!client) {
+    debugApi('Redis client not available for set', {
+      key,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // Check connection status
+  const isConnected = await isRedisConnected(client);
+  if (!isConnected) {
+    debugApi('Redis not connected for set', {
+      key,
+      status: client.status,
+      timestamp: new Date().toISOString(),
+    });
     return;
   }
 

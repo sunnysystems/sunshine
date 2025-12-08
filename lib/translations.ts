@@ -1844,6 +1844,14 @@ export const translations = {
           statusOk: 'Em conformidade',
           statusWatch: 'Atenção',
           statusCritical: 'Crítico',
+          captions: {
+            acrossFamilies: 'Entre famílias de produtos',
+            projectedTrend: 'Projeção baseada em tendência de 30 dias',
+            averageUtilization: 'Utilização média vs compromisso',
+            estimatedTime: 'Tempo estimado para atingir 100%',
+          },
+          runwayDays: 'dias',
+          runwayNa: 'N/A',
         },
         contractCard: {
           title: 'Contrato ativo',
@@ -1853,6 +1861,11 @@ export const translations = {
           cycleLabel: 'Ciclo de cobrança',
           thresholdLabel: 'Thresholds padrão',
           editButton: 'Editar contrato',
+          cycleLabels: {
+            monthly: 'Ciclo mensal',
+            annual: 'Ciclo anual',
+          },
+          usingDefaults: 'Usando valores padrão',
         },
         contractEdit: {
           title: 'Editar contrato',
@@ -1877,6 +1890,33 @@ export const translations = {
             addProduct: 'Adicionar produto',
             reset: 'Descartar alterações',
             save: 'Salvar alterações do contrato',
+          },
+          categories: {
+            infrastructure: 'Infraestrutura',
+            apm: 'APM & Tracing',
+            logs: 'Logs',
+            observability: 'Observabilidade & Testes',
+            security: 'Segurança & Conformidade',
+          },
+          loading: 'Carregando contrato...',
+          saving: 'Salvando...',
+          clearing: 'Limpando...',
+          clearAll: 'Limpar Tudo',
+          clearConfirm: 'Tem certeza que deseja limpar todos os dados do contrato? Esta ação não pode ser desfeita.',
+          success: 'Contrato salvo com sucesso! Atualizando...',
+          importPdf: 'Importar PDF da Quote',
+          errors: {
+            load: 'Falha ao carregar contrato',
+            save: 'Falha ao salvar contrato',
+            clear: 'Falha ao limpar contrato',
+            import: 'Falha ao importar quote',
+            uploadPdf: 'Por favor, envie um arquivo PDF',
+            fileSize: 'O tamanho do arquivo excede o limite de 10MB',
+          },
+          billingCycle: {
+            monthly: 'Mensal',
+            annual: 'Anual',
+            placeholder: 'Mensal',
           },
         },
         metricsSection: {
@@ -1933,6 +1973,7 @@ export const translations = {
               caption: 'Iniciar checklist de renegociação com compras',
             },
           },
+          nextReview: 'Próxima revisão',
         },
         actionsPage: {
           title: 'Playbooks e Alertas',
@@ -2036,6 +2077,28 @@ export const translations = {
             label: 'Commits CI visibility',
             unit: 'commits',
             action: 'Ajustar com time de DevEx',
+          },
+        },
+        progress: {
+          loading: 'Carregando: {current}',
+          loadingCount: 'Carregando {completed} de {total} serviços...',
+        },
+        errors: {
+          loading: 'Erro ao carregar dados',
+          loadingMessage: 'Falha ao carregar dados do Cost Guard. Por favor, tente novamente.',
+          fetchContract: 'Falha ao buscar dados do contrato',
+          fetchMetrics: 'Falha ao buscar dados de métricas',
+          loadData: 'Falha ao carregar dados',
+        },
+        api: {
+          timeout: {
+            title: 'Tempo de Requisição Esgotado',
+            message: 'A requisição demorou muito para ser concluída. Isso pode acontecer ao buscar dados de muitos serviços. Por favor, tente novamente.',
+          },
+          rateLimit: {
+            title: 'Limite de Taxa Excedido',
+            retrying: 'Tentando novamente automaticamente em {seconds} segundos...',
+            waiting: 'Aguardando o limite de taxa ser resetado. Por favor, aguarde...',
           },
         },
       },

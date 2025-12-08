@@ -393,12 +393,38 @@ function extractCloudSIEM(data: any): number {
 
 /**
  * Extract code security bundle (committers)
- * Note: This might need a different endpoint or calculation
+ * Uses ci-app endpoint which returns ci_visibility_itr_committers, ci_visibility_pipeline_committers, and ci_visibility_test_committers
+ * Returns the maximum value across all three committer types for the entire period (not summed, as Code Security charges per unique committer)
  */
 function extractCodeSecurity(data: any): number {
-  // Code security is typically based on number of committers, not usage
-  // This might need to be fetched from a different endpoint or calculated differently
-  // For now, return 0 as placeholder
+  // API v1 ci-app returns { usage: [{ ci_visibility_itr_committers: X, ci_visibility_pipeline_committers: Y, ci_visibility_test_committers: Z, ... }] }
+  // Format: { usage: [{ hour: "...", ci_visibility_itr_committers: 5, ci_visibility_pipeline_committers: 7, ci_visibility_test_committers: 9, ... }] }
+  if (data?.usage && Array.isArray(data.usage)) {
+    // For each item, get the maximum between the 3 committer fields
+    const maxValues = data.usage.map((item: any) => {
+      const itr = item.ci_visibility_itr_committers || 0;
+      const pipeline = item.ci_visibility_pipeline_committers || 0;
+      const test = item.ci_visibility_test_committers || 0;
+      return Math.max(itr, pipeline, test);
+    });
+    
+    // Return the maximum value overall (not summed, as Code Security charges per unique committer)
+    return maxValues.length > 0 ? Math.max(...maxValues) : 0;
+  }
+  
+  // If it's API v2 format (data[]), try to extract from measurements
+  if (data?.data && Array.isArray(data.data)) {
+    return data.data.reduce((sum: number, item: any) => {
+      const measurements = item.attributes?.measurements || [];
+      const codeSecurityMeasurement = measurements.find((m: any) => 
+        m.usage_type?.includes('code_security') || 
+        m.usage_type?.includes('committer')
+      );
+      return sum + (codeSecurityMeasurement?.value || 0);
+    }, 0);
+  }
+  
+  // Fallback: return 0 if no data found
   return 0;
 }
 
@@ -564,7 +590,7 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   cloud_siem_indexed: {
     serviceKey: 'cloud_siem_indexed',
     serviceName: 'Cloud SIEM Indexed (15 months)',
-    productFamily: 'siem',
+    productFamily: 'cloud_siem', // Corrected from 'siem' to 'cloud_siem' per Datadog API v2 docs
     usageType: 'siem_indexed',
     unit: 'M',
     category: 'security',

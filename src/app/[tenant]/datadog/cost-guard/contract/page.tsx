@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -40,6 +40,11 @@ export default function CostGuardContractPage() {
   const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [contractData, setContractData] = useState<ContractData | null>(null);
   const [progress, setProgress] = useState({ progress: 0, total: 0, completed: 0, current: '' });
+  
+  // Refs to track polling and prevent loops
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef(false);
 
   // Extract tenant from pathname
   const tenant = useMemo(() => {
@@ -58,8 +63,43 @@ export default function CostGuardContractPage() {
       setRetryAfter(undefined);
       setProgress({ progress: 0, total: 0, completed: 0, current: '' });
 
-      // Start polling for progress
-      const progressInterval = setInterval(async () => {
+      // Clear any existing polling before starting new one
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+
+      // Start polling for progress with protection against loops
+      isPollingRef.current = true;
+      const startTime = Date.now();
+      const MAX_POLLING_TIME = 5 * 60 * 1000; // 5 minutes maximum
+      const POLLING_INTERVAL = 1000; // Poll every 1 second (reduced from 500ms)
+
+      progressIntervalRef.current = setInterval(async () => {
+        // Stop if already stopped
+        if (!isPollingRef.current) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          return;
+        }
+
+        // Stop if exceeded max time
+        if (Date.now() - startTime > MAX_POLLING_TIME) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          isPollingRef.current = false;
+          return;
+        }
+
         try {
           const progressRes = await fetch(
             `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=summary`,
@@ -67,49 +107,97 @@ export default function CostGuardContractPage() {
           if (progressRes.ok) {
             const progressData = await progressRes.json();
             setProgress(progressData);
+            
+            // Stop polling if progress is complete (100% or completed >= total)
+            if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
+              if (progressIntervalRef.current) {
+                clearInterval(progressIntervalRef.current);
+                progressIntervalRef.current = null;
+              }
+              isPollingRef.current = false;
+            }
           }
         } catch {
-          // Ignore progress fetch errors
+          // Ignore progress fetch errors, but don't stop polling
         }
-      }, 500); // Poll every 500ms
+      }, POLLING_INTERVAL);
+
+      // Set timeout to force stop polling after max time
+      progressTimeoutRef.current = setTimeout(() => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        isPollingRef.current = false;
+      }, MAX_POLLING_TIME);
 
       const [contractRes, summaryRes] = await Promise.all([
         fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`),
         fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`),
       ]);
 
-      // Clear progress polling
-      clearInterval(progressInterval);
+      // Clear progress polling after main request completes
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
 
       // Check for rate limit errors
       if (contractRes.status === 429 || summaryRes.status === 429) {
+        // Clear polling on rate limit
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorResponse = contractRes.status === 429 ? contractRes : summaryRes;
         const errorData = await errorResponse.json().catch(() => ({
-          message: 'Rate limit exceeded',
+          message: t('datadog.costGuard.api.rateLimit.title'),
           retryAfter: 60,
         }));
         setRateLimitError(true);
         setRetryAfter(errorData.retryAfter || 60);
-        setError(errorData.message || 'Rate limit exceeded');
+        setError(errorData.message || t('datadog.costGuard.api.rateLimit.title'));
         setLoading(false);
         return;
       }
 
       // Check for timeout errors
       if (contractRes.status === 504 || summaryRes.status === 504) {
+        // Clear polling on timeout
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorResponse = contractRes.status === 504 ? contractRes : summaryRes;
         const errorData = await errorResponse.json().catch(() => ({
-          message: 'Request timeout',
+          message: t('datadog.costGuard.api.timeout.title'),
         }));
         setTimeoutError(true);
-        setError(errorData.message || 'Request timeout');
+        setError(errorData.message || t('datadog.costGuard.api.timeout.title'));
         setLoading(false);
         return;
       }
 
       if (!contractRes.ok || !summaryRes.ok) {
-        const errorText = await contractRes.text().catch(() => 'Failed to fetch contract data');
-        throw new Error(errorText || 'Failed to fetch contract data');
+        const errorText = await contractRes.text().catch(() => t('datadog.costGuard.errors.fetchContract'));
+        throw new Error(errorText || t('datadog.costGuard.errors.fetchContract'));
       }
 
       const contract = await contractRes.json();
@@ -122,11 +210,22 @@ export default function CostGuardContractPage() {
       setRateLimitError(false);
       setRetryAfter(undefined);
     } catch (err) {
+      // Clear polling on error
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+      
       // Only set error state if it's not already a rate limit error
       if (!rateLimitError) {
         setRateLimitError(false);
         setRetryAfter(undefined);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
+        setError(err instanceof Error ? err.message : t('datadog.costGuard.errors.loadData'));
       }
     } finally {
       setLoading(false);
@@ -135,6 +234,19 @@ export default function CostGuardContractPage() {
 
   useEffect(() => {
     fetchData();
+    
+    // Cleanup on unmount
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+    };
   }, [fetchData]);
 
   const summaryCards = useMemo(() => {
@@ -157,13 +269,13 @@ export default function CostGuardContractPage() {
       {
         title: t('datadog.costGuard.summary.contractedSpend'),
         value: formatCurrency(summary.contractedSpend),
-        caption: 'Across product families',
+        caption: t('datadog.costGuard.summary.captions.acrossFamilies'),
         status: { type: 'ok' as Status, label: t('datadog.costGuard.summary.statusOk') },
       },
       {
         title: t('datadog.costGuard.summary.projectedSpend'),
         value: formatCurrency(summary.projectedSpend),
-        caption: 'Projected based on 30-day trend',
+        caption: t('datadog.costGuard.summary.captions.projectedTrend'),
         status: {
           type: summary.status as Status,
           label:
@@ -177,12 +289,12 @@ export default function CostGuardContractPage() {
       {
         title: t('datadog.costGuard.summary.utilization'),
         value: `${summary.utilization}%`,
-        caption: 'Average utilization vs commitment',
+        caption: t('datadog.costGuard.summary.captions.averageUtilization'),
       },
       {
         title: t('datadog.costGuard.summary.runway'),
-        value: summary.runway !== null ? `${summary.runway} days` : 'N/A',
-        caption: 'Estimated time to reach 100%',
+        value: summary.runway !== null ? `${summary.runway} ${t('datadog.costGuard.summary.runwayDays')}` : t('datadog.costGuard.summary.runwayNa'),
+        caption: t('datadog.costGuard.summary.captions.estimatedTime'),
       },
       {
         title: t('datadog.costGuard.summary.overageRisk'),
@@ -248,7 +360,7 @@ export default function CostGuardContractPage() {
       id: 'custom-review',
       title: t('datadog.costGuard.timeline.items.review.title'),
       caption: t('datadog.costGuard.timeline.items.review.caption'),
-      dateLabel: 'Next review',
+      dateLabel: t('datadog.costGuard.timeline.nextReview'),
       tone: 'warning',
     });
 
@@ -343,7 +455,7 @@ export default function CostGuardContractPage() {
                   {t('datadog.costGuard.contractCard.planLabel')}
                 </p>
                 <p className="text-base font-medium">
-                  {contractData?.config?.plan_name || 'Enterprise Observability'}
+                  {contractData?.config?.plan_name || t('datadog.costGuard.contractEdit.fields.contractName')}
                 </p>
                 {contractData?.config?.contract_end_date && (
                   <p className="text-sm text-muted-foreground">
@@ -381,8 +493,8 @@ export default function CostGuardContractPage() {
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {contractData.config.billing_cycle === 'monthly'
-                        ? 'Monthly cycle'
-                        : 'Annual cycle'}
+                        ? t('datadog.costGuard.contractCard.cycleLabels.monthly')
+                        : t('datadog.costGuard.contractCard.cycleLabels.annual')}
                     </p>
                   </>
                 ) : (
@@ -406,7 +518,7 @@ export default function CostGuardContractPage() {
                 <p className="text-sm text-muted-foreground">
                   {contractData?.config?.thresholds
                     ? '+ custom overrides'
-                    : 'Using default values'}
+                    : t('datadog.costGuard.contractCard.usingDefaults')}
                 </p>
               </div>
             </div>

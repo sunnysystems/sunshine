@@ -148,7 +148,7 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 
 #### Cloud SIEM Indexed (15 months)
 - **Service Key**: `cloud_siem_indexed`
-- **Product Family**: `siem`
+- **Product Family**: `cloud_siem` (corrigido de `siem` - conforme documentação API v2)
 - **Usage Type**: `siem_indexed` ou `cloud_siem`
 - **Unit**: `M`
 - **API Response**: Busca measurements com `usage_type` contendo "siem"
@@ -159,8 +159,14 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Product Family**: `code_security`
 - **Usage Type**: `code_security_committers`
 - **Unit**: `Committer`
-- **API Response**: Pode precisar de endpoint diferente ou cálculo baseado em committers
-- **Extraction**: Retorna 0 por enquanto (placeholder - pode precisar de implementação específica)
+- **API Response**: 
+  - API v2 retorna erro 400 "Taxonomy error" (não suportado)
+  - API v1 fallback: usa endpoint `/api/v1/usage/ci-app`
+  - Formato da resposta: `{ usage: [{ hour: "...", ci_visibility_itr_committers: 5, ci_visibility_pipeline_committers: 7, ci_visibility_test_committers: 9, ... }] }`
+- **Extraction**: 
+  - Para cada item no array `usage`, pega o maior valor entre `ci_visibility_itr_committers`, `ci_visibility_pipeline_committers` e `ci_visibility_test_committers`
+  - Retorna o maior valor geral de todo o período (não soma, pois Code Security cobra por committers únicos)
+  - O endpoint `ci-app` tem limitação de 24 horas por requisição, então períodos maiores são divididos em chunks automaticamente
 
 ## Formato da Resposta da API
 

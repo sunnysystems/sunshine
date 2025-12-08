@@ -1,6 +1,7 @@
 'use client';
 
 import { Progress } from '@/components/ui/progress';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface ProgressIndicatorProps {
   progress: number;
@@ -15,6 +16,8 @@ export function ProgressIndicator({
   completed,
   current,
 }: ProgressIndicatorProps) {
+  const { t } = useTranslation();
+
   if (total === 0) {
     return null;
   }
@@ -24,8 +27,8 @@ export function ProgressIndicator({
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">
           {current
-            ? `Carregando: ${current}`
-            : `Carregando ${completed} de ${total} serviços...`}
+            ? t('datadog.costGuard.progress.loading', { current })
+            : t('datadog.costGuard.progress.loadingCount', { completed, total })}
         </span>
         <span className="font-medium">{progress}%</span>
       </div>

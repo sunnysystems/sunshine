@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
 import { usePathname } from 'next/navigation';
 
@@ -53,6 +53,11 @@ export default function CostGuardMetricsPage() {
   const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [metricsData, setMetricsData] = useState<any[]>([]);
   const [progress, setProgress] = useState({ progress: 0, total: 0, completed: 0, current: '' });
+  
+  // Refs to track polling and prevent loops
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef(false);
 
   // Extract tenant from pathname
   const tenant = useMemo(() => {
@@ -86,8 +91,43 @@ export default function CostGuardMetricsPage() {
       setRetryAfter(undefined);
       setProgress({ progress: 0, total: 0, completed: 0, current: '' });
 
-      // Start polling for progress
-      const progressInterval = setInterval(async () => {
+      // Clear any existing polling before starting new one
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+
+      // Start polling for progress with protection against loops
+      isPollingRef.current = true;
+      const startTime = Date.now();
+      const MAX_POLLING_TIME = 5 * 60 * 1000; // 5 minutes maximum
+      const POLLING_INTERVAL = 1000; // Poll every 1 second (reduced from 500ms)
+
+      progressIntervalRef.current = setInterval(async () => {
+        // Stop if already stopped
+        if (!isPollingRef.current) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          return;
+        }
+
+        // Stop if exceeded max time
+        if (Date.now() - startTime > MAX_POLLING_TIME) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          isPollingRef.current = false;
+          return;
+        }
+
         try {
           const progressRes = await fetch(
             `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=metrics`,
@@ -95,46 +135,94 @@ export default function CostGuardMetricsPage() {
           if (progressRes.ok) {
             const progressData = await progressRes.json();
             setProgress(progressData);
+            
+            // Stop polling if progress is complete (100% or completed >= total)
+            if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
+              if (progressIntervalRef.current) {
+                clearInterval(progressIntervalRef.current);
+                progressIntervalRef.current = null;
+              }
+              isPollingRef.current = false;
+            }
           }
         } catch {
-          // Ignore progress fetch errors
+          // Ignore progress fetch errors, but don't stop polling
         }
-      }, 500); // Poll every 500ms
+      }, POLLING_INTERVAL);
+
+      // Set timeout to force stop polling after max time
+      progressTimeoutRef.current = setTimeout(() => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        isPollingRef.current = false;
+      }, MAX_POLLING_TIME);
 
       const response = await fetch(
         `/api/datadog/cost-guard/metrics?tenant=${encodeURIComponent(tenant)}`,
       );
 
-      // Clear progress polling
-      clearInterval(progressInterval);
+      // Clear progress polling after main request completes
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
 
       // Check for rate limit errors
       if (response.status === 429) {
+        // Clear polling on rate limit
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorData = await response.json().catch(() => ({
-          message: 'Rate limit exceeded',
+          message: t('datadog.costGuard.api.rateLimit.title'),
           retryAfter: 60,
         }));
         setRateLimitError(true);
         setRetryAfter(errorData.retryAfter || 60);
-        setError(errorData.message || 'Rate limit exceeded');
+        setError(errorData.message || t('datadog.costGuard.api.rateLimit.title'));
         setLoading(false);
         return;
       }
 
       // Check for timeout errors
       if (response.status === 504) {
+        // Clear polling on timeout
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorData = await response.json().catch(() => ({
-          message: 'Request timeout',
+          message: t('datadog.costGuard.api.timeout.title'),
         }));
         setTimeoutError(true);
-        setError(errorData.message || 'Request timeout');
+        setError(errorData.message || t('datadog.costGuard.api.timeout.title'));
         setLoading(false);
         return;
       }
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Failed to fetch metrics data');
-        throw new Error(errorText || 'Failed to fetch metrics data');
+        const errorText = await response.text().catch(() => t('datadog.costGuard.errors.fetchMetrics'));
+        throw new Error(errorText || t('datadog.costGuard.errors.fetchMetrics'));
       }
 
       const data = await response.json();
@@ -166,11 +254,22 @@ export default function CostGuardMetricsPage() {
       setRetryAfter(undefined);
       setProgress({ progress: 100, total: progress.total || 1, completed: progress.total || 1, current: '' });
     } catch (err) {
+      // Clear polling on error
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+      
       // Only set error state if it's not already a rate limit error
       if (!rateLimitError) {
         setRateLimitError(false);
         setRetryAfter(undefined);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
+        setError(err instanceof Error ? err.message : t('datadog.costGuard.errors.loadData'));
       }
     } finally {
       setLoading(false);
@@ -179,6 +278,19 @@ export default function CostGuardMetricsPage() {
 
   useEffect(() => {
     fetchData();
+    
+    // Cleanup on unmount
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
+    };
   }, [fetchData]);
 
   const metricConfigs: MetricConfig[] = useMemo(() => {

@@ -399,9 +399,47 @@ const V1_ENDPOINT_MAP: Record<string, string> = {
   timeseries: 'timeseries',
   ci_app: 'ci-app',
   serverless: 'aws_lambda',
+  code_security: 'ci-app', // Uses ci-app endpoint for Code Security committers
   // Note: Some product families may not have v1 endpoints
-  // siem, code_security, llm_observability - verify if v1 endpoints exist
+  // siem, llm_observability - verify if v1 endpoints exist
 };
+
+/**
+ * Calculate hours between two RFC3339 timestamps
+ */
+function hoursBetween(startHr: string, endHr: string): number {
+  const start = new Date(startHr).getTime();
+  const end = new Date(endHr).getTime();
+  return Math.ceil((end - start) / (1000 * 60 * 60)); // Convert ms to hours
+}
+
+/**
+ * Split a time range into chunks of max 24 hours for APIs with 24-hour limit (e.g., ci-app, hourly-attribution)
+ */
+function splitInto24HourChunks(startHr: string, endHr: string): Array<{ start: string; end: string }> {
+  const chunks: Array<{ start: string; end: string }> = [];
+  const startDate = new Date(startHr);
+  const endDate = new Date(endHr);
+  
+  let currentStart = new Date(startDate);
+  
+  while (currentStart < endDate) {
+    const currentEnd = new Date(currentStart);
+    currentEnd.setHours(currentEnd.getHours() + 24);
+    
+    // Don't exceed the original end date
+    const chunkEnd = currentEnd > endDate ? endDate : currentEnd;
+    
+    chunks.push({
+      start: currentStart.toISOString(),
+      end: chunkEnd.toISOString(),
+    });
+    
+    currentStart = new Date(chunkEnd);
+  }
+  
+  return chunks;
+}
 
 /**
  * Get usage data for a specific product family using v2 API
@@ -421,9 +459,10 @@ export async function getUsageData(
   const v2ProductFamily = PRODUCT_FAMILY_MAP[productFamily] || productFamily;
   
   // Check cache if organizationId is provided
+  // Use v2ProductFamily for cache key to ensure consistency
   if (organizationId) {
     const cacheKey = generateCacheKey(
-      productFamily,
+      v2ProductFamily, // Use v2ProductFamily instead of productFamily for consistency
       startHr,
       endHr,
       organizationId,
@@ -432,6 +471,7 @@ export async function getUsageData(
     if (cached) {
       debugApi('Using cached Datadog Usage Data', {
         productFamily,
+        v2ProductFamily,
         cacheKey,
         timestamp: new Date().toISOString(),
       });
@@ -464,14 +504,21 @@ export async function getUsageData(
     );
 
     // Cache the result if organizationId is provided
+    // Use v2ProductFamily for cache key to ensure consistency
     if (organizationId && data) {
       const cacheKey = generateCacheKey(
-        productFamily,
+        v2ProductFamily, // Use v2ProductFamily instead of productFamily for consistency
         startHr,
         endHr,
         organizationId,
       );
       await setCachedUsageData(cacheKey, data, 86400); // 24 hours TTL
+      debugApi('Cached Datadog Usage Data (v2)', {
+        productFamily,
+        v2ProductFamily,
+        cacheKey,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     return data;
@@ -492,6 +539,34 @@ export async function getUsageData(
       return { data: [], errors: [{ message: 'Endpoint not available' }] };
     }
     
+    // If 400 with Taxonomy error, the product family is not valid/supported in v2
+    // For code_security, try v1 fallback; for others, return empty structure
+    if (error instanceof Error && error.message.includes('400') && error.message.includes('Taxonomy error')) {
+      // For code_security, allow fallback to v1 API
+      if (v2ProductFamily === 'code_security') {
+        debugApi(`Datadog Product Family Not Supported in v2 - Trying v1 Fallback - ${productFamily}`, {
+          productFamily,
+          v2ProductFamily,
+          endpoint: fullUrl,
+          error: error.message,
+          suggestion: 'Trying v1 API endpoint as fallback for code_security',
+          timestamp: new Date().toISOString(),
+        });
+        // Don't return here, let it continue to v1 fallback logic below
+      } else {
+        // For other product families, return empty structure
+        debugApi(`Datadog Product Family Not Supported - ${productFamily}`, {
+          productFamily,
+          v2ProductFamily,
+          endpoint: fullUrl,
+          error: error.message,
+          suggestion: 'This product family may not be available via usage API or may require a different endpoint',
+          timestamp: new Date().toISOString(),
+        });
+        return { data: [], errors: [{ message: 'Product family not supported by usage API' }] };
+      }
+    }
+    
     // For other errors, try v1 endpoint as fallback (deprecated but may still work)
     if (error instanceof Error) {
       // Map v2 product family to v1 endpoint name
@@ -508,44 +583,162 @@ export async function getUsageData(
         return { data: [], errors: [{ message: 'Endpoint not available and no v1 fallback' }] };
       }
 
-      const v1Endpoint = `/api/v1/usage/${v1EndpointName}`;
-      const v1Params = new URLSearchParams({
-        start_hr: startHr,
-        end_hr: endHr,
-      });
-      const v1Url = `${v1Endpoint}?${v1Params.toString()}`;
+      // Special handling for code_security: uses ci-app endpoint
+      let v1Endpoint: string;
+      let v1Params: URLSearchParams;
+      
+      if (v2ProductFamily === 'code_security') {
+        v1Endpoint = `/api/v1/usage/ci-app`;
+        
+        // Check if we need to split into chunks (ci-app has 24h limit)
+        const hoursDiff = hoursBetween(startHr, endHr);
+        
+        if (hoursDiff > 24) {
+          // Split into chunks and aggregate results
+          const chunks = splitInto24HourChunks(startHr, endHr);
+          debugApi('Splitting code_security request into chunks', {
+            productFamily,
+            totalHours: hoursDiff,
+            chunkCount: chunks.length,
+            chunks: chunks.map(c => ({
+              start: c.start,
+              end: c.end,
+              hours: hoursBetween(c.start, c.end),
+            })),
+            timestamp: new Date().toISOString(),
+          });
+          
+          const allUsageData: any[] = [];
+          
+          for (const chunk of chunks) {
+            const chunkParams = new URLSearchParams({
+              start_hr: chunk.start,
+              end_hr: chunk.end,
+            });
+            const chunkUrl = `${v1Endpoint}?${chunkParams.toString()}`;
+            
+            try {
+              const chunkData = await datadogRequest<any>(
+                chunkUrl,
+                credentials,
+              );
+              
+              // Aggregate usage array from all chunks
+              if (chunkData?.usage && Array.isArray(chunkData.usage)) {
+                allUsageData.push(...chunkData.usage);
+                debugApi('Code Security chunk fetched successfully', {
+                  chunk: { start: chunk.start, end: chunk.end },
+                  usageItems: chunkData.usage.length,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            } catch (chunkError) {
+              debugApi('Error fetching code_security chunk', {
+                chunk: { start: chunk.start, end: chunk.end },
+                error: chunkError instanceof Error ? chunkError.message : String(chunkError),
+                timestamp: new Date().toISOString(),
+              });
+              // Continue with other chunks even if one fails
+            }
+          }
+          
+          // Return aggregated data in the same format as single request
+          const aggregatedData = {
+            usage: allUsageData,
+          };
+          
+          // Cache the aggregated result
+          if (organizationId && aggregatedData) {
+            const cacheKey = generateCacheKey(
+              v2ProductFamily,
+              startHr,
+              endHr,
+              organizationId,
+            );
+            await setCachedUsageData(cacheKey, aggregatedData, 86400);
+            debugApi('Cached Datadog Usage Data (v1 fallback - aggregated)', {
+              productFamily,
+              v2ProductFamily,
+              cacheKey,
+              chunksProcessed: chunks.length,
+              totalUsageItems: allUsageData.length,
+              timestamp: new Date().toISOString(),
+            });
+          }
+          
+          return aggregatedData;
+        } else {
+          // Single request (24h or less)
+          v1Params = new URLSearchParams({
+            start_hr: startHr,
+            end_hr: endHr,
+          });
+        }
+      } else {
+        v1Endpoint = `/api/v1/usage/${v1EndpointName}`;
+        v1Params = new URLSearchParams({
+          start_hr: startHr,
+          end_hr: endHr,
+        });
+      }
+      
+      // Only make single request if we didn't already handle chunks above
+      if (v2ProductFamily !== 'code_security' || hoursBetween(startHr, endHr) <= 24) {
+        const v1Url = `${v1Endpoint}?${v1Params.toString()}`;
 
-      debugApi('Trying Datadog v1 Endpoint as Fallback (deprecated)', {
-        productFamily,
-        v2ProductFamily,
-        v1EndpointName,
-        v1Endpoint: v1Url,
-        v2Endpoint: fullUrl,
-        originalError: error.message,
-        timestamp: new Date().toISOString(),
-      });
-
-      try {
-        return await datadogRequest<any>(
-          v1Url,
-          credentials,
-        );
-      } catch (v1Error) {
-        // If both fail, return empty structure with detailed logging
-        debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
+        debugApi('Trying Datadog v1 Endpoint as Fallback (deprecated)', {
           productFamily,
           v2ProductFamily,
-          v1EndpointName,
-          v2Endpoint: fullUrl,
+          v1EndpointName: v2ProductFamily === 'code_security' ? 'ci-app' : v1EndpointName,
           v1Endpoint: v1Url,
-          v2Error: error.message,
-          v1Error: v1Error instanceof Error ? v1Error.message : String(v1Error),
-          startHr,
-          endHr,
+          v2Endpoint: fullUrl,
+          originalError: error.message,
           timestamp: new Date().toISOString(),
         });
-        logError(v1Error, `Datadog Usage Data - ${productFamily}`);
-        return { data: [], errors: [{ message: 'Endpoints not available' }] };
+
+        try {
+          const v1Data = await datadogRequest<any>(
+            v1Url,
+            credentials,
+          );
+
+          // Cache the v1 fallback result if organizationId is provided
+          // Use v2ProductFamily for cache key to ensure consistency with v2 cache
+          if (organizationId && v1Data) {
+            const cacheKey = generateCacheKey(
+              v2ProductFamily, // Use v2ProductFamily for consistency
+              startHr,
+              endHr,
+              organizationId,
+            );
+            await setCachedUsageData(cacheKey, v1Data, 86400); // 24 hours TTL
+            debugApi('Cached Datadog Usage Data (v1 fallback)', {
+              productFamily,
+              v2ProductFamily,
+              v1EndpointName,
+              cacheKey,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
+          return v1Data;
+        } catch (v1Error) {
+          // If both fail, return empty structure with detailed logging
+          debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
+            productFamily,
+            v2ProductFamily,
+            v1EndpointName,
+            v2Endpoint: fullUrl,
+            v1Endpoint: v1Url,
+            v2Error: error.message,
+            v1Error: v1Error instanceof Error ? v1Error.message : String(v1Error),
+            startHr,
+            endHr,
+            timestamp: new Date().toISOString(),
+          });
+          logError(v1Error, `Datadog Usage Data - ${productFamily}`);
+          return { data: [], errors: [{ message: 'Endpoints not available' }] };
+        }
       }
     }
     

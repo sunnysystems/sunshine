@@ -16,8 +16,8 @@ interface ErrorStateProps {
 }
 
 export function ErrorState({
-  title = 'Error loading data',
-  message = 'Failed to load Cost Guard data. Please try again.',
+  title,
+  message,
   onRetry,
   rateLimitError = false,
   timeoutError = false,
@@ -56,20 +56,18 @@ export function ErrorState({
   }, [rateLimitError, countdown, onRetry]);
 
   const displayTitle = rateLimitError
-    ? t('datadog.api.rateLimit.title') || 'Rate Limit Exceeded'
+    ? t('datadog.costGuard.api.rateLimit.title')
     : timeoutError
-      ? 'Request Timeout'
-      : title;
+      ? t('datadog.costGuard.api.timeout.title')
+      : title || t('datadog.costGuard.errors.loading');
 
   const displayMessage = rateLimitError
     ? countdown !== null && countdown > 0
-      ? t('datadog.api.rateLimit.retrying', { seconds: countdown }) ||
-        `Retrying automatically in ${countdown} seconds...`
-      : t('datadog.api.rateLimit.waiting') ||
-        'Waiting for rate limit to reset. Please wait...'
+      ? t('datadog.costGuard.api.rateLimit.retrying', { seconds: countdown })
+      : t('datadog.costGuard.api.rateLimit.waiting')
     : timeoutError
-      ? 'The request took too long to complete. This may happen when fetching data for many services. Please try again.'
-      : message;
+      ? t('datadog.costGuard.api.timeout.message')
+      : message || t('datadog.costGuard.errors.loadingMessage');
 
   return (
     <Alert
