@@ -5,6 +5,8 @@ import {
   getCachedUsageData,
   setCachedUsageData,
   generateCacheKey,
+  generateDayCacheKey,
+  getTTLForDay,
 } from './cache';
 
 /**
@@ -442,7 +444,68 @@ function splitInto24HourChunks(startHr: string, endHr: string): Array<{ start: s
 }
 
 /**
- * Get usage data for a specific product family using v2 API
+ * Split a time range into individual days (YYYY-MM-DD format)
+ * Returns array of date strings: ["2024-12-01", "2024-12-02", ...]
+ */
+function splitIntoDays(startHr: string, endHr: string): string[] {
+  const days: string[] = [];
+  const startDate = new Date(startHr);
+  const endDate = new Date(endHr);
+  
+  // Normalize to start of day
+  const currentDay = new Date(startDate);
+  currentDay.setHours(0, 0, 0, 0);
+  
+  const endDay = new Date(endDate);
+  endDay.setHours(0, 0, 0, 0);
+  
+  while (currentDay <= endDay) {
+    const year = currentDay.getFullYear();
+    const month = String(currentDay.getMonth() + 1).padStart(2, '0');
+    const day = String(currentDay.getDate()).padStart(2, '0');
+    days.push(`${year}-${month}-${day}`);
+    
+    // Move to next day
+    currentDay.setDate(currentDay.getDate() + 1);
+  }
+  
+  return days;
+}
+
+/**
+ * Aggregate multiple Datadog API responses into a single response
+ * Combines data arrays from multiple responses
+ */
+function aggregateUsageData(responses: Array<{ data?: any[]; usage?: any[]; errors?: any[] }>): any {
+  const aggregated: any = {
+    data: [],
+    errors: [],
+  };
+  
+  for (const response of responses) {
+    if (response.data && Array.isArray(response.data)) {
+      aggregated.data.push(...response.data);
+    }
+    if (response.usage && Array.isArray(response.usage)) {
+      if (!aggregated.usage) {
+        aggregated.usage = [];
+      }
+      aggregated.usage.push(...response.usage);
+    }
+    if (response.errors && Array.isArray(response.errors)) {
+      aggregated.errors.push(...response.errors);
+    }
+  }
+  
+  return aggregated;
+}
+
+/**
+ * Get usage data for a specific product family using v2 API with day-based caching
+ * This function uses intelligent day-based caching:
+ * - Caches each day individually (24h periods)
+ * - Reuses cached days across different queries
+ * - Past days cached for 30 days, today cached for 1 hour
  * @param productFamily - logs, apm, infra, rum, synthetics, custom_metrics, ci_visibility
  * @param startHr - Start hour in RFC3339 format (e.g., "2024-01-01T00:00:00Z")
  * @param endHr - End hour in RFC3339 format
@@ -458,39 +521,173 @@ export async function getUsageData(
   // Map legacy names to v2 API names
   const v2ProductFamily = PRODUCT_FAMILY_MAP[productFamily] || productFamily;
   
-  // Check cache if organizationId is provided
-  // Use v2ProductFamily for cache key to ensure consistency
+  // If organizationId is provided, use day-based caching strategy
   if (organizationId) {
-    const cacheKey = generateCacheKey(
-      v2ProductFamily, // Use v2ProductFamily instead of productFamily for consistency
+    return await getUsageDataWithDayCache(
+      credentials,
+      v2ProductFamily,
       startHr,
       endHr,
       organizationId,
     );
-    const cached = await getCachedUsageData(cacheKey);
+  }
+  
+  // Fallback to direct API call if no organizationId (no caching)
+  return await getUsageDataDirect(credentials, v2ProductFamily, startHr, endHr);
+}
+
+/**
+ * Get usage data using day-based caching strategy
+ * Splits the period into days, checks cache for each day, and only fetches missing days
+ */
+async function getUsageDataWithDayCache(
+  credentials: DatadogCredentials,
+  productFamily: string,
+  startHr: string,
+  endHr: string,
+  organizationId: string,
+): Promise<any> {
+  // Split period into individual days
+  const days = splitIntoDays(startHr, endHr);
+  
+  debugApi('Getting usage data with day-based cache', {
+    productFamily,
+    startHr,
+    endHr,
+    days: days.length,
+    dayList: days,
+    organizationId,
+    timestamp: new Date().toISOString(),
+  });
+  
+  // Check cache for each day
+  const cachedDays: Array<{ day: string; data: any }> = [];
+  const missingDays: string[] = [];
+  
+  for (const day of days) {
+    const dayKey = generateDayCacheKey(productFamily, day, organizationId);
+    const cached = await getCachedUsageData(dayKey);
+    
     if (cached) {
-      debugApi('Using cached Datadog Usage Data', {
+      cachedDays.push({ day, data: cached });
+      debugApi('Day cache hit', {
         productFamily,
-        v2ProductFamily,
-        cacheKey,
+        day,
+        key: dayKey,
         timestamp: new Date().toISOString(),
       });
-      return cached;
+    } else {
+      missingDays.push(day);
+      debugApi('Day cache miss', {
+        productFamily,
+        day,
+        key: dayKey,
+        timestamp: new Date().toISOString(),
+      });
     }
   }
   
+  // Fetch missing days from API
+  const fetchedDays: Array<{ day: string; data: any }> = [];
+  
+  for (const day of missingDays) {
+    // Calculate start and end hours for this day
+    const dayStart = new Date(`${day}T00:00:00Z`);
+    const dayEnd = new Date(`${day}T23:59:59Z`);
+    
+    // Adjust to respect original startHr/endHr boundaries
+    const actualStart = new Date(Math.max(dayStart.getTime(), new Date(startHr).getTime()));
+    const actualEnd = new Date(Math.min(dayEnd.getTime(), new Date(endHr).getTime()));
+    
+    const dayStartHr = actualStart.toISOString();
+    const dayEndHr = actualEnd.toISOString();
+    
+    try {
+      const dayData = await getUsageDataDirect(credentials, productFamily, dayStartHr, dayEndHr);
+      
+      // getUsageDataDirect returns { data: [], errors: [...] } on error, so check if we have data
+      if (dayData && (!dayData.errors || dayData.errors.length === 0) && (dayData.data?.length > 0 || dayData.usage?.length > 0)) {
+        // Cache this day with appropriate TTL
+        const dayKey = generateDayCacheKey(productFamily, day, organizationId);
+        const ttl = getTTLForDay(day);
+        await setCachedUsageData(dayKey, dayData, ttl);
+        
+        fetchedDays.push({ day, data: dayData });
+        
+        debugApi('Fetched and cached day', {
+          productFamily,
+          day,
+          key: dayKey,
+          ttl,
+          dataPoints: dayData.data?.length || dayData.usage?.length || 0,
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        debugApi('Day data fetch returned empty or error', {
+          productFamily,
+          day,
+          hasData: !!dayData?.data,
+          hasUsage: !!dayData?.usage,
+          errors: dayData?.errors,
+          timestamp: new Date().toISOString(),
+        });
+        // Continue with other days even if this one has no data
+      }
+    } catch (error) {
+      debugApi('Error fetching day data', {
+        productFamily,
+        day,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+      });
+      // Continue with other days even if one fails
+    }
+  }
+  
+  // Aggregate all data (cached + fetched)
+  const allDayData = [...cachedDays, ...fetchedDays];
+  
+  if (allDayData.length === 0) {
+    return { data: [], errors: [] };
+  }
+  
+  // Aggregate responses
+  const aggregated = aggregateUsageData(allDayData.map(d => d.data));
+  
+  debugApi('Aggregated usage data from days', {
+    productFamily,
+    totalDays: days.length,
+    cachedDays: cachedDays.length,
+    fetchedDays: fetchedDays.length,
+    totalDataPoints: aggregated.data?.length || 0,
+    timestamp: new Date().toISOString(),
+  });
+  
+  return aggregated;
+}
+
+/**
+ * Direct API call to Datadog (no caching)
+ * Used internally for fetching individual days
+ * Handles v2 API call and v1 fallback if needed
+ */
+async function getUsageDataDirect(
+  credentials: DatadogCredentials,
+  productFamily: string,
+  startHr: string,
+  endHr: string,
+): Promise<any> {
   // Use v2 hourly_usage endpoint (recommended by Datadog)
   const endpoint = `/api/v2/usage/hourly_usage`;
   const params = new URLSearchParams({
     'filter[timestamp][start]': startHr,
     'filter[timestamp][end]': endHr,
-    'filter[product_families]': v2ProductFamily,
+    'filter[product_families]': productFamily,
   });
   const fullUrl = `${endpoint}?${params.toString()}`;
 
-  debugApi('Fetching Datadog Usage Data (v2)', {
+  debugApi('Fetching Datadog Usage Data (v2 - direct)', {
     productFamily,
-    v2ProductFamily,
     endpoint: fullUrl,
     startHr,
     endHr,
@@ -503,246 +700,121 @@ export async function getUsageData(
       credentials,
     );
 
-    // Cache the result if organizationId is provided
-    // Use v2ProductFamily for cache key to ensure consistency
-    if (organizationId && data) {
-      const cacheKey = generateCacheKey(
-        v2ProductFamily, // Use v2ProductFamily instead of productFamily for consistency
-        startHr,
-        endHr,
-        organizationId,
-      );
-      await setCachedUsageData(cacheKey, data, 86400); // 24 hours TTL
-      debugApi('Cached Datadog Usage Data (v2)', {
-        productFamily,
-        v2ProductFamily,
-        cacheKey,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
     return data;
   } catch (error) {
     // If 404, the endpoint may not be available for this account
-    // Return empty structure instead of throwing
     if (error instanceof Error && error.message.includes('404')) {
       debugApi(`Datadog Usage Endpoint 404 - ${productFamily}`, {
         productFamily,
-        v2ProductFamily,
         endpoint: fullUrl,
         startHr,
         endHr,
         error: error.message,
-        suggestion: 'This endpoint may not be available for this Datadog account or may require specific plan permissions',
         timestamp: new Date().toISOString(),
       });
       return { data: [], errors: [{ message: 'Endpoint not available' }] };
     }
     
-    // If 400 with Taxonomy error, the product family is not valid/supported in v2
-    // For code_security, try v1 fallback; for others, return empty structure
+    // If 400 with Taxonomy error, try v1 fallback for code_security
     if (error instanceof Error && error.message.includes('400') && error.message.includes('Taxonomy error')) {
-      // For code_security, allow fallback to v1 API
-      if (v2ProductFamily === 'code_security') {
+      if (productFamily === 'code_security') {
         debugApi(`Datadog Product Family Not Supported in v2 - Trying v1 Fallback - ${productFamily}`, {
           productFamily,
-          v2ProductFamily,
           endpoint: fullUrl,
           error: error.message,
-          suggestion: 'Trying v1 API endpoint as fallback for code_security',
           timestamp: new Date().toISOString(),
         });
-        // Don't return here, let it continue to v1 fallback logic below
+        // Continue to v1 fallback below
       } else {
-        // For other product families, return empty structure
-        debugApi(`Datadog Product Family Not Supported - ${productFamily}`, {
-          productFamily,
-          v2ProductFamily,
-          endpoint: fullUrl,
-          error: error.message,
-          suggestion: 'This product family may not be available via usage API or may require a different endpoint',
-          timestamp: new Date().toISOString(),
-        });
         return { data: [], errors: [{ message: 'Product family not supported by usage API' }] };
       }
     }
     
-    // For other errors, try v1 endpoint as fallback (deprecated but may still work)
-    if (error instanceof Error) {
-      // Map v2 product family to v1 endpoint name
-      const v1EndpointName = V1_ENDPOINT_MAP[v2ProductFamily];
-      
-      if (!v1EndpointName) {
-        debugApi(`No v1 endpoint mapping found for ${v2ProductFamily}`, {
-          productFamily,
-          v2ProductFamily,
-          v2Endpoint: fullUrl,
-          originalError: error.message,
-          timestamp: new Date().toISOString(),
-        });
-        return { data: [], errors: [{ message: 'Endpoint not available and no v1 fallback' }] };
-      }
+    // Try v1 endpoint as fallback
+    const v1EndpointName = V1_ENDPOINT_MAP[productFamily];
+    
+    if (!v1EndpointName) {
+      debugApi(`No v1 endpoint mapping found for ${productFamily}`, {
+        productFamily,
+        v2Endpoint: fullUrl,
+        originalError: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+      });
+      return { data: [], errors: [{ message: 'Endpoint not available and no v1 fallback' }] };
+    }
 
-      // Special handling for code_security: uses ci-app endpoint
-      let v1Endpoint: string;
-      let v1Params: URLSearchParams;
+    // Special handling for code_security: uses ci-app endpoint
+    let v1Endpoint: string;
+    let v1Params: URLSearchParams;
+    
+    if (productFamily === 'code_security') {
+      v1Endpoint = `/api/v1/usage/ci-app`;
       
-      if (v2ProductFamily === 'code_security') {
-        v1Endpoint = `/api/v1/usage/ci-app`;
+      // Check if we need to split into chunks (ci-app has 24h limit)
+      const hoursDiff = hoursBetween(startHr, endHr);
+      
+      if (hoursDiff > 24) {
+        // Split into chunks and aggregate results
+        const chunks = splitInto24HourChunks(startHr, endHr);
+        const allUsageData: any[] = [];
         
-        // Check if we need to split into chunks (ci-app has 24h limit)
-        const hoursDiff = hoursBetween(startHr, endHr);
-        
-        if (hoursDiff > 24) {
-          // Split into chunks and aggregate results
-          const chunks = splitInto24HourChunks(startHr, endHr);
-          debugApi('Splitting code_security request into chunks', {
-            productFamily,
-            totalHours: hoursDiff,
-            chunkCount: chunks.length,
-            chunks: chunks.map(c => ({
-              start: c.start,
-              end: c.end,
-              hours: hoursBetween(c.start, c.end),
-            })),
-            timestamp: new Date().toISOString(),
+        for (const chunk of chunks) {
+          const chunkParams = new URLSearchParams({
+            start_hr: chunk.start,
+            end_hr: chunk.end,
           });
+          const chunkUrl = `${v1Endpoint}?${chunkParams.toString()}`;
           
-          const allUsageData: any[] = [];
-          
-          for (const chunk of chunks) {
-            const chunkParams = new URLSearchParams({
-              start_hr: chunk.start,
-              end_hr: chunk.end,
-            });
-            const chunkUrl = `${v1Endpoint}?${chunkParams.toString()}`;
-            
-            try {
-              const chunkData = await datadogRequest<any>(
-                chunkUrl,
-                credentials,
-              );
-              
-              // Aggregate usage array from all chunks
-              if (chunkData?.usage && Array.isArray(chunkData.usage)) {
-                allUsageData.push(...chunkData.usage);
-                debugApi('Code Security chunk fetched successfully', {
-                  chunk: { start: chunk.start, end: chunk.end },
-                  usageItems: chunkData.usage.length,
-                  timestamp: new Date().toISOString(),
-                });
-              }
-            } catch (chunkError) {
-              debugApi('Error fetching code_security chunk', {
-                chunk: { start: chunk.start, end: chunk.end },
-                error: chunkError instanceof Error ? chunkError.message : String(chunkError),
-                timestamp: new Date().toISOString(),
-              });
-              // Continue with other chunks even if one fails
+          try {
+            const chunkData = await datadogRequest<any>(chunkUrl, credentials);
+            if (chunkData?.usage && Array.isArray(chunkData.usage)) {
+              allUsageData.push(...chunkData.usage);
             }
-          }
-          
-          // Return aggregated data in the same format as single request
-          const aggregatedData = {
-            usage: allUsageData,
-          };
-          
-          // Cache the aggregated result
-          if (organizationId && aggregatedData) {
-            const cacheKey = generateCacheKey(
-              v2ProductFamily,
-              startHr,
-              endHr,
-              organizationId,
-            );
-            await setCachedUsageData(cacheKey, aggregatedData, 86400);
-            debugApi('Cached Datadog Usage Data (v1 fallback - aggregated)', {
-              productFamily,
-              v2ProductFamily,
-              cacheKey,
-              chunksProcessed: chunks.length,
-              totalUsageItems: allUsageData.length,
+          } catch (chunkError) {
+            debugApi('Error fetching code_security chunk', {
+              chunk: { start: chunk.start, end: chunk.end },
+              error: chunkError instanceof Error ? chunkError.message : String(chunkError),
               timestamp: new Date().toISOString(),
             });
           }
-          
-          return aggregatedData;
-        } else {
-          // Single request (24h or less)
-          v1Params = new URLSearchParams({
-            start_hr: startHr,
-            end_hr: endHr,
-          });
         }
+        
+        return { usage: allUsageData };
       } else {
-        v1Endpoint = `/api/v1/usage/${v1EndpointName}`;
         v1Params = new URLSearchParams({
           start_hr: startHr,
           end_hr: endHr,
         });
       }
-      
-      // Only make single request if we didn't already handle chunks above
-      if (v2ProductFamily !== 'code_security' || hoursBetween(startHr, endHr) <= 24) {
-        const v1Url = `${v1Endpoint}?${v1Params.toString()}`;
+    } else {
+      v1Endpoint = `/api/v1/usage/${v1EndpointName}`;
+      v1Params = new URLSearchParams({
+        start_hr: startHr,
+        end_hr: endHr,
+      });
+    }
+    
+    // Make v1 request
+    if (productFamily !== 'code_security' || hoursBetween(startHr, endHr) <= 24) {
+      const v1Url = `${v1Endpoint}?${v1Params.toString()}`;
 
-        debugApi('Trying Datadog v1 Endpoint as Fallback (deprecated)', {
+      try {
+        const v1Data = await datadogRequest<any>(v1Url, credentials);
+        return v1Data;
+      } catch (v1Error) {
+        debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
           productFamily,
-          v2ProductFamily,
-          v1EndpointName: v2ProductFamily === 'code_security' ? 'ci-app' : v1EndpointName,
-          v1Endpoint: v1Url,
           v2Endpoint: fullUrl,
-          originalError: error.message,
+          v1Endpoint: v1Url,
+          v2Error: error instanceof Error ? error.message : String(error),
+          v1Error: v1Error instanceof Error ? v1Error.message : String(v1Error),
           timestamp: new Date().toISOString(),
         });
-
-        try {
-          const v1Data = await datadogRequest<any>(
-            v1Url,
-            credentials,
-          );
-
-          // Cache the v1 fallback result if organizationId is provided
-          // Use v2ProductFamily for cache key to ensure consistency with v2 cache
-          if (organizationId && v1Data) {
-            const cacheKey = generateCacheKey(
-              v2ProductFamily, // Use v2ProductFamily for consistency
-              startHr,
-              endHr,
-              organizationId,
-            );
-            await setCachedUsageData(cacheKey, v1Data, 86400); // 24 hours TTL
-            debugApi('Cached Datadog Usage Data (v1 fallback)', {
-              productFamily,
-              v2ProductFamily,
-              v1EndpointName,
-              cacheKey,
-              timestamp: new Date().toISOString(),
-            });
-          }
-
-          return v1Data;
-        } catch (v1Error) {
-          // If both fail, return empty structure with detailed logging
-          debugApi(`Both Datadog Endpoints Failed - ${productFamily}`, {
-            productFamily,
-            v2ProductFamily,
-            v1EndpointName,
-            v2Endpoint: fullUrl,
-            v1Endpoint: v1Url,
-            v2Error: error.message,
-            v1Error: v1Error instanceof Error ? v1Error.message : String(v1Error),
-            startHr,
-            endHr,
-            timestamp: new Date().toISOString(),
-          });
-          logError(v1Error, `Datadog Usage Data - ${productFamily}`);
-          return { data: [], errors: [{ message: 'Endpoints not available' }] };
-        }
+        return { data: [], errors: [{ message: 'Endpoints not available' }] };
       }
     }
     
-    throw error;
+    return { data: [], errors: [{ message: 'Endpoint not available' }] };
   }
 }
 

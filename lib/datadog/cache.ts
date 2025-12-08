@@ -90,7 +90,7 @@ export async function getRedisClient(): Promise<RedisClient | null> {
 }
 
 /**
- * Generate cache key for usage data
+ * Generate cache key for usage data (legacy - for backward compatibility)
  */
 export function generateCacheKey(
   productFamily: string,
@@ -99,6 +99,39 @@ export function generateCacheKey(
   organizationId: string,
 ): string {
   return `datadog:usage:${organizationId}:${productFamily}:${startHr}:${endHr}`;
+}
+
+/**
+ * Generate cache key for a specific day (YYYY-MM-DD format)
+ * This allows caching individual days and reusing them across different queries
+ */
+export function generateDayCacheKey(
+  productFamily: string,
+  date: string, // "2024-12-01" (YYYY-MM-DD)
+  organizationId: string,
+): string {
+  return `datadog:usage:${organizationId}:${productFamily}:${date}:day`;
+}
+
+/**
+ * Get TTL for a day based on whether it's in the past or today
+ * - Past days: 30 days TTL (data won't change)
+ * - Today: 1 hour TTL (data may still be updating)
+ */
+export function getTTLForDay(date: string): number {
+  const dayDate = new Date(date);
+  dayDate.setHours(0, 0, 0, 0);
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  // If the day already passed, cache for 30 days
+  if (dayDate < today) {
+    return 30 * 24 * 60 * 60; // 30 days
+  }
+  
+  // If it's today, cache for 1 hour (data may still be updating)
+  return 60 * 60; // 1 hour
 }
 
 /**

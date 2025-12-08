@@ -3,7 +3,8 @@
  * Maps each service from Datadog quotes to API endpoints and usage extraction
  */
 
-import { calculateTotalUsage, bytesToGB } from './calculations';
+import { calculateTotalUsage, bytesToGB, extractMaxUsage } from './calculations';
+import { debugApi } from '@/lib/debug';
 
 export interface ServiceMapping {
   serviceKey: string;
@@ -18,126 +19,118 @@ export interface ServiceMapping {
 
 /**
  * Extract usage for infrastructure hosts (Enterprise)
+ * Uses MAXIMUM value across all hours (capacity metric)
  */
 function extractInfraHostEnterprise(data: any): number {
-  // API v2 returns measurements with usage_type
-  // Look for infra_host_enterprise or similar
-  if (data?.data && Array.isArray(data.data)) {
-    let total = 0;
-    for (const hourlyUsage of data.data) {
-      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        for (const measurement of hourlyUsage.attributes.measurements) {
-          // Check if this is enterprise host usage
-          if (
-            measurement.usage_type === 'infra_host_enterprise' ||
-            measurement.usage_type === 'infra_host_enterprise_usage' ||
-            (measurement.usage_type?.includes('enterprise') && measurement.usage_type?.includes('host'))
-          ) {
-            total += measurement.value || 0;
-          }
-        }
-      }
-    }
-    return total;
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'infra_host_enterprise' ||
+    usageType === 'infra_host_enterprise_usage' ||
+    (usageType?.includes('enterprise') && usageType?.includes('host'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Infra Host Enterprise (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
   }
+  
   // Fallback: use total usage if we can't filter by type
   return calculateTotalUsage(data);
 }
 
 /**
  * Extract usage for containers
+ * Uses MAXIMUM value across all hours (capacity metric)
  */
 function extractContainers(data: any): number {
-  if (data?.data && Array.isArray(data.data)) {
-    let total = 0;
-    for (const hourlyUsage of data.data) {
-      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        for (const measurement of hourlyUsage.attributes.measurements) {
-          if (
-            measurement.usage_type === 'containers' ||
-            measurement.usage_type === 'container_usage' ||
-            measurement.usage_type?.includes('container')
-          ) {
-            total += measurement.value || 0;
-          }
-        }
-      }
-    }
-    return total;
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'containers' ||
+    usageType === 'container_usage' ||
+    usageType?.includes('container')
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Containers (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
   }
-  return calculateTotalUsage(data);
+  
+  return 0;
 }
 
 /**
  * Extract usage for database monitoring
+ * Uses MAXIMUM value across all hours (capacity metric)
  */
 function extractDatabaseMonitoring(data: any): number {
-  if (data?.data && Array.isArray(data.data)) {
-    let total = 0;
-    for (const hourlyUsage of data.data) {
-      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        for (const measurement of hourlyUsage.attributes.measurements) {
-          if (
-            measurement.usage_type === 'database_monitoring' ||
-            measurement.usage_type === 'dbm_hosts' ||
-            measurement.usage_type?.includes('database')
-          ) {
-            total += measurement.value || 0;
-          }
-        }
-      }
-    }
-    return total;
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'database_monitoring' ||
+    usageType === 'dbm_hosts' ||
+    usageType?.includes('database')
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Database Monitoring (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
   }
-  return calculateTotalUsage(data);
+  
+  return 0;
 }
 
 /**
  * Extract usage for serverless functions
+ * Uses MAXIMUM value across all hours (capacity metric)
  */
 function extractServerlessFunctions(data: any): number {
-  if (data?.data && Array.isArray(data.data)) {
-    let total = 0;
-    for (const hourlyUsage of data.data) {
-      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        for (const measurement of hourlyUsage.attributes.measurements) {
-          if (
-            measurement.usage_type === 'serverless_functions' ||
-            measurement.usage_type === 'functions_invocations' ||
-            measurement.usage_type?.includes('serverless')
-          ) {
-            total += measurement.value || 0;
-          }
-        }
-      }
-    }
-    return total;
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'serverless_functions' ||
+    usageType === 'functions_invocations' ||
+    usageType?.includes('serverless')
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Serverless Functions (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
   }
-  return calculateTotalUsage(data);
+  
+  return 0;
 }
 
 /**
  * Extract usage for APM Enterprise hosts
+ * Uses MAXIMUM value across all hours (capacity metric)
  */
 function extractAPMEnterprise(data: any): number {
-  if (data?.data && Array.isArray(data.data)) {
-    let total = 0;
-    for (const hourlyUsage of data.data) {
-      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
-        for (const measurement of hourlyUsage.attributes.measurements) {
-          if (
-            measurement.usage_type === 'apm_host_enterprise' ||
-            measurement.usage_type === 'apm_enterprise_hosts' ||
-            (measurement.usage_type?.includes('apm') && measurement.usage_type?.includes('enterprise'))
-          ) {
-            total += measurement.value || 0;
-          }
-        }
-      }
-    }
-    return total;
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'apm_host_enterprise' ||
+    usageType === 'apm_enterprise_hosts' ||
+    (usageType?.includes('apm') && usageType?.includes('enterprise'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted APM Enterprise (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
   }
-  return calculateTotalUsage(data);
+  
+  return 0;
 }
 
 /**
@@ -192,25 +185,35 @@ function extractIngestedSpans(data: any): number {
 
 /**
  * Extract log events (indexed logs in millions)
+ * Uses SUM across all hours (volume metric)
  */
 function extractLogEvents(data: any): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
+    let hoursProcessed = 0;
     for (const hourlyUsage of data.data) {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
           if (
             measurement.usage_type === 'indexed_logs' ||
             measurement.usage_type === 'log_events' ||
-            measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log')
+            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log'))
           ) {
             total += measurement.value || 0;
           }
         }
+        hoursProcessed++;
       }
     }
     // Convert to millions
-    return total / 1000000;
+    const result = total / 1000000;
+    debugApi('Extracted Log Events (sum)', {
+      totalRaw: total,
+      resultInMillions: result,
+      hoursProcessed,
+      timestamp: new Date().toISOString(),
+    });
+    return result;
   }
   return calculateTotalUsage(data) / 1000000;
 }

@@ -127,9 +127,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Calculate date range (last 30 days for projection)
-    const endDate = new Date();
-    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    // Calculate date range: Datadog always bills monthly (day 1 to last day of month)
+    // Always aggregate from day 1 of current month to today (or end of month if passed)
+    const now = new Date();
+    const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
 
     const startHr = formatDatadogHour(startDate);
     const endHr = formatDatadogHour(endDate);

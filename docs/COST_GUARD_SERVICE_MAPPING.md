@@ -10,6 +10,51 @@ O Cost Guard rastreia serviços individuais negociados em contratos Datadog. Cad
 - Uma função de extração de uso que processa a resposta da API
 - Uma unidade de medida (hosts, GB, milhões, etc.)
 
+## Modelo de Cobrança e Agregação
+
+**IMPORTANTE**: O Datadog sempre cobra o mês completo, do dia 1 ao último dia do mês. O commit é sempre mensal.
+
+### Período de Agregação
+
+- **Sempre agregar do dia 1 do mês atual até o dia atual** (ou último dia do mês se já passou)
+- O uso mostrado reflete o consumo acumulado do mês atual (dia 1 até hoje)
+- A projeção considera o uso do mês atual e projeta para o resto do mês
+
+### Métricas de Capacidade vs Volume
+
+A API `/api/v2/usage/hourly_usage` retorna valores **por hora** para cada métrica. Dependendo do tipo de métrica, usamos diferentes estratégias de agregação:
+
+#### Métricas de Capacidade (usar MÁXIMO)
+Para métricas que representam capacidade simultânea (containers, hosts, functions), usamos o **valor máximo** encontrado em todas as horas do período, não a soma. Isso porque:
+- Se temos 100 containers rodando continuamente, a API retorna 100 para cada hora
+- Somar todas as horas resultaria em 100 * 720 horas = 72,000 (incorreto)
+- O correto é usar o máximo: 100 containers
+
+**Métricas que usam MÁXIMO:**
+- Containers
+- Infra Host (Enterprise)
+- Database Monitoring
+- Serverless Workload Monitoring (Functions)
+- APM Enterprise
+- Code Security (já usa máximo por design)
+
+#### Métricas de Volume (usar SOMA)
+Para métricas que representam volume processado (logs, spans, invocations, sessions), usamos a **soma** de todas as horas do período. Isso porque:
+- Se processamos 1 milhão de logs em uma hora, a API retorna 1,000,000 para aquela hora
+- Somar todas as horas nos dá o total de logs processados no período (correto)
+
+**Métricas que usam SOMA:**
+- Log Events (indexed logs)
+- Log Ingestion
+- Indexed Spans
+- Ingested Spans
+- LLM Observability
+- Browser Tests
+- API Tests
+- RUM Session Replay
+- RUM Browser Sessions
+- Cloud SIEM
+
 ## API Endpoint Principal
 
 Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v2, com filtros específicos por `product_family` e `usage_type`.
@@ -24,7 +69,7 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Usage Type**: `infra_host_enterprise` ou `infra_host_enterprise_usage`
 - **Unit**: `hosts`
 - **API Response**: Busca measurements com `usage_type` contendo "enterprise" e "host"
-- **Extraction**: Soma todos os valores de measurements que correspondem ao tipo enterprise
+- **Extraction**: **MÁXIMO** valor encontrado em todas as horas (métrica de capacidade)
 
 #### Containers
 - **Service Key**: `containers`
@@ -32,7 +77,8 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Usage Type**: `containers` ou `container_usage`
 - **Unit**: `containers`
 - **API Response**: Busca measurements com `usage_type` contendo "container"
-- **Extraction**: Soma valores de measurements de containers
+- **Extraction**: **MÁXIMO** valor encontrado em todas as horas (métrica de capacidade)
+- **Exemplo**: Se temos 683 containers rodando continuamente, retorna 683 (não 683 * horas)
 
 #### Database Monitoring
 - **Service Key**: `database_monitoring`
@@ -40,7 +86,7 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Usage Type**: `database_monitoring` ou `dbm_hosts`
 - **Unit**: `hosts`
 - **API Response**: Busca measurements com `usage_type` relacionado a database monitoring
-- **Extraction**: Soma valores de measurements de database monitoring
+- **Extraction**: **MÁXIMO** valor encontrado em todas as horas (métrica de capacidade)
 
 #### Serverless Workload Monitoring (Functions)
 - **Service Key**: `serverless_workload_monitoring`
@@ -48,7 +94,7 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Usage Type**: `serverless_functions` ou `functions_invocations`
 - **Unit**: `functions`
 - **API Response**: Busca measurements com `usage_type` contendo "serverless" ou "function"
-- **Extraction**: Soma valores de measurements de serverless functions
+- **Extraction**: **MÁXIMO** valor encontrado em todas as horas (métrica de capacidade)
 
 #### Serverless Functions APM
 - **Service Key**: `serverless_functions_apm`
@@ -92,7 +138,7 @@ Todos os serviços usam o endpoint `/api/v2/usage/hourly_usage` da API Datadog v
 - **Usage Type**: `indexed_logs` ou `log_events`
 - **Unit**: `M`
 - **API Response**: Busca measurements com `usage_type` contendo "indexed" e "log"
-- **Extraction**: Soma valores e converte para milhões (divide por 1,000,000)
+- **Extraction**: **SOMA** valores de todas as horas e converte para milhões (divide por 1,000,000) - métrica de volume
 
 #### Log Ingestion
 - **Service Key**: `log_ingestion`
@@ -199,8 +245,9 @@ A API v2 do Datadog retorna dados no seguinte formato:
 Cada serviço tem uma função de extração personalizada que:
 1. Itera sobre `data[].attributes.measurements[]`
 2. Filtra measurements pelo `usage_type` correto
-3. Soma os valores
-4. Aplica conversões de unidade quando necessário (bytes → GB, valores → milhões, etc.)
+3. **Para métricas de capacidade**: Retorna o **MÁXIMO** valor encontrado em todas as horas
+4. **Para métricas de volume**: **SOMA** os valores de todas as horas
+5. Aplica conversões de unidade quando necessário (bytes → GB, valores → milhões, etc.)
 
 ## Fallback para Product Families Genéricos
 

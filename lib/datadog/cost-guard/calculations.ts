@@ -353,6 +353,34 @@ export function calculateTotalUsage(
 }
 
 /**
+ * Extract maximum usage value from Datadog hourly usage response
+ * Used for capacity metrics (containers, hosts, functions) where we need the peak value, not the sum
+ * @param data - Datadog API response with hourly usage data
+ * @param usageTypeFilter - Function to filter measurements by usage_type
+ * @returns Maximum value found across all hours
+ */
+export function extractMaxUsage(
+  data: any,
+  usageTypeFilter: (usageType: string) => boolean,
+): number {
+  if (!data?.data || !Array.isArray(data.data)) {
+    return 0;
+  }
+
+  let maxValue = 0;
+  for (const hourlyUsage of data.data) {
+    if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+      for (const measurement of hourlyUsage.attributes.measurements) {
+        if (usageTypeFilter(measurement.usage_type)) {
+          maxValue = Math.max(maxValue, measurement.value || 0);
+        }
+      }
+    }
+  }
+  return maxValue;
+}
+
+/**
  * Convert bytes to GB
  */
 export function bytesToGB(bytes: number): number {
