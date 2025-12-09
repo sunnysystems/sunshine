@@ -270,6 +270,7 @@ function extractLogIngestion(data: any): number {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
           if (
+            measurement.usage_type === 'ingested_events_bytes' ||
             measurement.usage_type === 'ingested_logs' ||
             measurement.usage_type === 'log_ingestion' ||
             (measurement.usage_type?.includes('ingested') && measurement.usage_type?.includes('log'))
@@ -574,8 +575,8 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   log_ingestion: {
     serviceKey: 'log_ingestion',
     serviceName: 'Log Ingestion',
-    productFamily: 'indexed_logs',
-    usageType: 'ingested_logs',
+    productFamily: 'logs',
+    usageType: 'ingested_events_bytes',
     unit: 'GB',
     category: 'logs',
     apiEndpoint: '/api/v2/usage/hourly_usage',
@@ -738,6 +739,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'log_ingestion':
       return (usageType: string) =>
+        usageType === 'ingested_events_bytes' ||
         usageType === 'ingested_logs' ||
         usageType === 'log_ingestion' ||
         (usageType?.includes('ingested') && usageType?.includes('log'));
