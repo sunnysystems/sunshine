@@ -593,7 +593,7 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   browser_tests: {
     serviceKey: 'browser_tests',
     serviceName: 'Browser Tests',
-    productFamily: 'synthetics_api',
+    productFamily: 'synthetics_browser',
     usageType: 'browser_tests',
     unit: '1K',
     category: 'observability',
