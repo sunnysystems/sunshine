@@ -119,6 +119,7 @@ function extractDatabaseMonitoring(data: any): number {
  */
 function extractServerlessFunctions(data: any): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'func_count' ||
     usageType === 'serverless_functions' ||
     usageType === 'functions_invocations' ||
     usageType?.includes('serverless')
@@ -703,8 +704,9 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'serverless_workload_monitoring':
       return (usageType: string) =>
+        usageType === 'func_count' ||
         usageType === 'serverless_functions' ||
-        usageType?.includes('serverless') && !usageType?.includes('apm');
+        (usageType?.includes('serverless') && !usageType?.includes('apm'));
     
     case 'serverless_functions_apm':
       return (usageType: string) =>
