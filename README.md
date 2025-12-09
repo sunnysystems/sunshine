@@ -54,10 +54,16 @@ npm run dev
 | Variable | Purpose |
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project for auth & storage |
-| `SUPABASE_SERVICE_ROLE_KEY` | Needed once we persist Datadog credentials |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for Cost Guard (stores Datadog credentials and contract data) |
 | `NEXTAUTH_URL`, `NEXTAUTH_SECRET` | NextAuth session handling |
 | `JWT_SECRET` | Internal microservice communication |
 | `FEATURES__DATADOG_SUITE`, `NEXT_PUBLIC_FEATURES__DATADOG_SUITE` | Optional override (defaults to `true`) |
+| `REDIS_URL` | Optional - for rate limit coordination across processes (falls back to in-memory if not provided) |
+
+**Cost Guard Requirements:**
+- Supabase database with `datadog_cost_guard_config` and `datadog_cost_guard_services` tables (see migrations)
+- Datadog API and Application keys configured in the UI
+- Contract data configured with service commitments and thresholds
 
 Optional integrations (Stripe, Resend, Google OAuth) remain documented inside `env.example`.
 
@@ -67,12 +73,35 @@ Optional integrations (Stripe, Resend, Google OAuth) remain documented inside `e
 
 | Area | Description (EN) | Descrição (PT) | Status |
 | --- | --- | --- | --- |
-| **Datadog API Credentials** | Owner/Admin configure API + App keys, unlocking downstream pages. | Proprietário/Admin configuram API + App keys e liberam as demais páginas. | Mock save (local) |
-| **Observability Workspace** | Cost Guard, Status Pages, Synthetic Runs, Log Filters, Business KPIs, Correlation Stories, Maturity Heatmap. | Guardião de Custos, Status Pages, Sintéticos, Filtros de Logs, KPIs de Negócio, Histórias de Correlação, Mapa de Maturidade. | Mock data |
+| **Datadog API Credentials** | Owner/Admin configure API + App keys, unlocking downstream pages. | Proprietário/Admin configuram API + App keys e liberam as demais páginas. | ✅ Live (Supabase) |
+| **Cost Guard** | Real-time usage tracking, monthly projections, threshold alerts, and service-level breakdowns with MAX/SUM aggregation types. | Rastreamento de uso em tempo real, projeções mensais, alertas de threshold e detalhamento por serviço com tipos de agregação MAX/SUM. | ✅ Live (Datadog API) |
+| **Observability Workspace** | Status Pages, Synthetic Runs, Log Filters, Business KPIs, Correlation Stories, Maturity Heatmap. | Status Pages, Sintéticos, Filtros de Logs, KPIs de Negócio, Histórias de Correlação, Mapa de Maturidade. | Mock data |
 | **Automation Lab (MCP)** | Natural language queries, profiler analysis → PRs, error auto-fixes, AI cost insights. | Perguntas em linguagem natural, profiler → PRs, correções automáticas, insights de custo via IA. | Mock flows |
 | **Integrations & FinOps** | Slack funnel, webhook orchestration, predictive budgets and alerts. | Hub Slack, orquestração via webhooks, previsões de budget e alertas. | Mock data |
 
 All pages rely on `useTranslation` to read from `lib/translations.ts`, guaranteeing parity between English and Portuguese.
+
+### Cost Guard Features
+
+**Cost Guard** is a fully functional module that tracks Datadog service usage and provides:
+
+- **Real-time Usage Tracking**: Monitors usage from day 1 of current month to today
+- **Monthly Projections**: Calculates end-of-month projections using:
+  - **SUM metrics** (volume): Daily average with trend adjustment
+  - **MAX metrics** (capacity): Peak value with growth trend projection
+- **Service Breakdown**: Detailed table showing:
+  - Current usage vs committed limits
+  - Threshold warnings
+  - Projected end-of-month values
+  - Aggregation type (MAX for capacity, SUM for volume)
+  - Status indicators (OK, Watch, Critical)
+- **Rate Limit Management**: 
+  - Proactive rate limit checking with Redis-based coordination
+  - UI notifications with countdown timer when waiting for rate limit reset
+  - Automatic retry with exponential backoff
+- **Progress Tracking**: Real-time progress updates during data fetching
+
+See `docs/COST_GUARD_SERVICE_MAPPING.md` for detailed service mapping and aggregation logic.
 
 ---
 
@@ -81,19 +110,34 @@ All pages rely on `useTranslation` to read from `lib/translations.ts`, guarantee
 ```
 src/
 ├── app/
-│   └── [tenant]/
-│       ├── datadog/
-│       │   ├── api-credentials/          # Credential onboarding
-│       │   ├── automation/               # MCP mock workflows
-│       │   ├── finops/                   # FinOps forecasts
-│       │   ├── integrations/             # Communication channels
-│       │   └── observability/            # Dashboards & stories
+│   ├── [tenant]/
+│   │   ├── datadog/
+│   │   │   ├── api-credentials/          # Credential onboarding
+│   │   │   ├── automation/               # MCP mock workflows
+│   │   │   ├── cost-guard/               # Cost Guard (metrics, summary, contract)
+│   │   │   ├── finops/                   # FinOps forecasts
+│   │   │   ├── integrations/             # Communication channels
+│   │   │   └── observability/            # Dashboards & stories
+│   └── api/
+│       └── datadog/
+│           └── cost-guard/                # Cost Guard API endpoints
 ├── components/
-│   └── datadog/                          # Shared UI primitives for new pages
+│   └── datadog/
+│       └── cost-guard/                    # Cost Guard UI components
 ├── lib/
-│   └── translations.ts                   # i18n dictionary (en-US + pt-BR)
+│   ├── datadog/
+│   │   ├── client.ts                      # Datadog API client with rate limiting
+│   │   ├── rate-limit.ts                  # Redis-based rate limit management
+│   │   └── cost-guard/
+│   │       ├── calculations.ts            # Projection & utilization calculations
+│   │       ├── progress.ts                # Progress tracking system
+│   │       ├── service-mapping.ts         # Service to API mapping
+│   │       └── types.ts                   # TypeScript types
+│   └── translations.ts                    # i18n dictionary (en-US + pt-BR)
+├── docs/
+│   └── COST_GUARD_SERVICE_MAPPING.md     # Service mapping documentation
 └── config/
-    └── features.config.ts                # Feature flag registry
+    └── features.config.ts                 # Feature flag registry
 ```
 
 We keep the original scaffolding (auth, organizations, billing, etc.) untouched for reuse.
@@ -118,8 +162,9 @@ Page routing is enforced via tenant-aware middleware plus role checks inside the
 | Milestone | English Summary | Resumo em Português | ETA |
 | --- | --- | --- | --- |
 | 🏁 Mock UX Delivery | All Datadog pages with mock data + translations. | Todas as páginas Datadog com dados mock + traduções. | ✅ |
-| 🔒 Supabase Persistence | Persist API/App keys and FinOps signals with RLS. | Persistir API/App keys e projeções FinOps com RLS. | Q1 |
-| 🔗 Datadog API Wiring | Call usage, billing, SLO, incidents APIs. | Conectar APIs de uso, billing, SLO, incidentes. | Q1 |
+| 🔒 Supabase Persistence | Persist API/App keys and FinOps signals with RLS. | Persistir API/App keys e projeções FinOps com RLS. | ✅ |
+| 🔗 Datadog API Wiring | Call usage, billing, SLO, incidents APIs. | Conectar APIs de uso, billing, SLO, incidentes. | ✅ (Cost Guard) |
+| 📊 Cost Guard | Real-time usage tracking, projections, and alerts. | Rastreamento de uso em tempo real, projeções e alertas. | ✅ |
 | 🤖 MCP Automation | Connect Datadog MCP + GitHub PR flows. | Integrar MCP do Datadog + automação de PRs. | Q2 |
 | 📣 Slack/Webhook Orchestration | Slash commands, webhook delivery of insights. | Comandos Slack, entrega de insights via webhook. | Q2 |
 
@@ -131,6 +176,16 @@ Page routing is enforced via tenant-aware middleware plus role checks inside the
 2. Keep translations mirrored (`en-US` + `pt-BR`).
 3. Run `npm run lint` and `npm test`.
 4. Describe which Datadog workflow your PR touches.
+5. For Cost Guard changes, update `docs/COST_GUARD_SERVICE_MAPPING.md` if service mappings change.
+
+### Cost Guard Development
+
+When working on Cost Guard features:
+
+- **Service Mappings**: Update `lib/datadog/cost-guard/service-mapping.ts` and document changes in `docs/COST_GUARD_SERVICE_MAPPING.md`
+- **Calculations**: Projection logic is in `lib/datadog/cost-guard/calculations.ts` - ensure MAX vs SUM logic is correct
+- **Rate Limiting**: Rate limit coordination uses Redis (optional) - test with and without Redis
+- **Translations**: All UI text must be in both `en-US` and `pt-BR` in `lib/translations.ts`
 
 ---
 
