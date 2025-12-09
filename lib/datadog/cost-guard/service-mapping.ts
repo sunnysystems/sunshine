@@ -679,6 +679,25 @@ export function getServicesByCategory(category: ServiceMapping['category']): Ser
 }
 
 /**
+ * Get aggregation type for a service (MAX for capacity metrics, SUM for volume metrics)
+ * @param serviceKey - The service key
+ * @returns 'MAX' for capacity metrics, 'SUM' for volume metrics
+ */
+export function getAggregationType(serviceKey: string): 'MAX' | 'SUM' {
+  // Services that use extractMaxUsage (capacity metrics)
+  const maxServices = new Set([
+    'infra_host_enterprise',
+    'containers',
+    'database_monitoring',
+    'serverless_workload_monitoring',
+    'apm_enterprise',
+    'code_security_bundle',
+  ]);
+
+  return maxServices.has(serviceKey) ? 'MAX' : 'SUM';
+}
+
+/**
  * Get usage_type filter function for a specific service
  * Returns a filter function that matches the same usage_type conditions used by the service's extractUsage function
  * This ensures trend data only includes measurements for the specific service, not consolidated metrics

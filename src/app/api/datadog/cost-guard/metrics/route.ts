@@ -18,10 +18,12 @@ import {
   calculateUtilization,
   determineStatus,
   extractTrendFromTimeseries,
+  extractDailyAbsoluteValues,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
-import { getServiceMapping, SERVICE_MAPPINGS, getUsageTypeFilter } from '@/lib/datadog/cost-guard/service-mapping';
-import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
+import { getServiceMapping, SERVICE_MAPPINGS, getUsageTypeFilter, getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
+import { initProgress, updateProgress, setRateLimitWaiting } from '@/lib/datadog/cost-guard/progress';
+import { checkAndWaitForRateLimit as checkRateLimit } from '@/lib/datadog/rate-limit';
 import type { ServiceUsage } from '@/lib/datadog/cost-guard/types';
 import { debugApi, logError } from '@/lib/debug';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -263,6 +265,20 @@ export async function GET(request: NextRequest) {
         }
 
         try {
+          // Check rate limit before making request and update progress if waiting
+          const rateLimitName = 'usage_metering'; // Default rate limit name for usage endpoints
+          await checkRateLimit(
+            rateLimitName,
+            (waitTimeSeconds) => {
+              // Update progress to show we're waiting for rate limit
+              setRateLimitWaiting(tenant, 'metrics', true, waitTimeSeconds);
+            },
+            () => {
+              // Clear waiting state when done
+              setRateLimitWaiting(tenant, 'metrics', false);
+            },
+          );
+          
           const usageData = await getUsageData(
             credentials,
             mapping.productFamily,
@@ -317,12 +333,42 @@ export async function GET(request: NextRequest) {
           // Get usage_type filter for this specific service to ensure trend only includes this service's data
           const usageTypeFilter = getUsageTypeFilter(service.service_key);
           const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
+          
+          // Extract daily absolute values for projection calculation
+          const aggregationType = getAggregationType(service.service_key);
+          let dailyValues = extractDailyAbsoluteValues(timeseriesData, usageTypeFilter, aggregationType);
+          
+          // Apply the same transformation that extractUsage does to daily values
+          // This ensures dailyValues are in the same unit as totalUsage
+          if (service.service_key === 'ingested_spans' || service.service_key === 'log_ingestion') {
+            // Convert bytes to GB for daily values
+            dailyValues = dailyValues.map(d => ({ ...d, value: bytesToGB(d.value) }));
+          } else if (service.service_key === 'indexed_spans' || service.service_key === 'log_events' || service.service_key === 'cloud_siem_indexed') {
+            // Convert to millions
+            dailyValues = dailyValues.map(d => ({ ...d, value: d.value / 1000000 }));
+          } else if (service.service_key === 'llm_observability') {
+            // Convert to 10K units
+            dailyValues = dailyValues.map(d => ({ ...d, value: d.value / 10000 }));
+          } else if (service.service_key === 'browser_tests' || service.service_key === 'rum_session_replay' || service.service_key === 'rum_browser_sessions') {
+            // Convert to 1K units
+            dailyValues = dailyValues.map(d => ({ ...d, value: d.value / 1000 }));
+          } else if (service.service_key === 'api_tests') {
+            // Convert to 10K units
+            dailyValues = dailyValues.map(d => ({ ...d, value: d.value / 10000 }));
+          } else if (service.service_key === 'serverless_functions_apm') {
+            // Convert to millions
+            dailyValues = dailyValues.map(d => ({ ...d, value: d.value / 1000000 }));
+          }
+          // For MAX metrics and other services, values are already in the correct unit
+          
+          // Calculate projection using new method
+          const now = new Date();
+          const projected = calculateProjection(dailyValues, totalUsage, aggregationType, now);
+          
           const committed = Number(service.quantity) || 0;
           const threshold = service.threshold !== null && service.threshold !== undefined
             ? Number(service.threshold)
             : committed * 0.9;
-
-          const projected = calculateProjection(trend.map((t) => totalUsage * (t / 100)), 30);
           const status = determineStatus(totalUsage, committed, threshold);
           const utilization = calculateUtilization(totalUsage, committed);
 
@@ -515,6 +561,14 @@ export async function GET(request: NextRequest) {
       }
       
       const trend = extractTrendFromTimeseries(timeseriesData, 7);
+      
+      // For fallback, use SUM as default (most metrics are volume-based)
+      // Extract daily absolute values for projection
+      const dailyValues = extractDailyAbsoluteValues(timeseriesData, undefined, 'SUM');
+      
+      // Calculate projection using new method
+      const now = new Date();
+      const projected = calculateProjection(dailyValues, totalUsage, 'SUM', now);
 
       const productFamiliesConfig = (config?.product_families as Record<string, any>) || {};
       const productFamilyConfig = productFamiliesConfig[productFamily] as
@@ -528,7 +582,6 @@ export async function GET(request: NextRequest) {
         thresholds[productFamily] ||
         committed * 0.9;
 
-      const projected = calculateProjection(trend.map((t) => totalUsage * (t / 100)), 30);
       const status = determineStatus(totalUsage, committed, threshold);
 
       metrics.push({

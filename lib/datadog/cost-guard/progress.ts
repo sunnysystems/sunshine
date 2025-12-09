@@ -10,6 +10,9 @@ interface ProgressState {
   completed: number;
   current: string;
   startTime: number;
+  rateLimitWaiting?: boolean;
+  rateLimitWaitTime?: number; // seconds remaining
+  rateLimitWaitStartTime?: number; // timestamp when waiting started
 }
 
 // Store progress by tenant + request type
@@ -115,7 +118,42 @@ export function getProgress(
   requestType: string,
 ): ProgressState | null {
   const key = getProgressKey(tenant, requestType);
-  return progressStore.get(key) || null;
+  const state = progressStore.get(key);
+  
+  // If rate limit waiting, calculate remaining time
+  if (state?.rateLimitWaiting && state.rateLimitWaitStartTime && state.rateLimitWaitTime) {
+    const elapsed = (Date.now() - state.rateLimitWaitStartTime) / 1000; // seconds
+    const remaining = Math.max(0, state.rateLimitWaitTime - elapsed);
+    return {
+      ...state,
+      rateLimitWaitTime: remaining,
+    };
+  }
+  
+  return state || null;
+}
+
+/**
+ * Set rate limit waiting state
+ */
+export function setRateLimitWaiting(
+  tenant: string,
+  requestType: string,
+  waiting: boolean,
+  waitTimeSeconds?: number,
+): void {
+  const key = getProgressKey(tenant, requestType);
+  const state = progressStore.get(key);
+  if (state) {
+    state.rateLimitWaiting = waiting;
+    if (waiting && waitTimeSeconds !== undefined) {
+      state.rateLimitWaitTime = waitTimeSeconds;
+      state.rateLimitWaitStartTime = Date.now();
+    } else {
+      state.rateLimitWaitTime = undefined;
+      state.rateLimitWaitStartTime = undefined;
+    }
+  }
 }
 
 /**

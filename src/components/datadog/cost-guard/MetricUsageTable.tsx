@@ -17,7 +17,7 @@ export interface MetricTableRow {
     type: Status;
     label: string;
   };
-  action: string;
+  aggregationType: 'MAX' | 'SUM';
 }
 
 interface MetricUsageTableProps {
@@ -30,7 +30,7 @@ interface MetricUsageTableProps {
     threshold: string;
     projected: string;
     status: string;
-    action: string;
+    aggregationType: string;
   };
   rows: MetricTableRow[];
 }
@@ -58,7 +58,7 @@ export function MetricUsageTable({ title, columns, rows }: MetricUsageTableProps
               <th className="pb-3 pr-3 font-medium">{columns.threshold}</th>
               <th className="pb-3 pr-3 font-medium">{columns.projected}</th>
               <th className="pb-3 pr-3 font-medium">{columns.status}</th>
-              <th className="pb-3 pr-3 font-medium">{columns.action}</th>
+              <th className="pb-3 pr-3 font-medium">{columns.aggregationType}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
@@ -85,7 +85,11 @@ export function MetricUsageTable({ title, columns, rows }: MetricUsageTableProps
                     {row.status.label}
                   </Badge>
                 </td>
-                <td className="py-3 pr-3 text-muted-foreground">{row.action}</td>
+                <td className="py-3 pr-3 text-muted-foreground">
+                  <Badge variant="outline" className="border px-2 py-0.5 text-xs font-medium">
+                    {row.aggregationType}
+                  </Badge>
+                </td>
               </tr>
             ))}
           </tbody>

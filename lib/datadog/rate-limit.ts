@@ -168,10 +168,14 @@ export async function decrementRateLimitRemaining(
  * Check rate limit and wait if necessary before making a request
  * This function is idempotent and works across multiple processes
  * @param rateLimitName Name of the rate limit (e.g., "usage_metering")
+ * @param onWaiting Optional callback when waiting starts: (waitTimeSeconds: number) => void
+ * @param onWaitingEnd Optional callback when waiting ends: () => void
  * @returns Promise that resolves when it's safe to make a request
  */
 export async function checkAndWaitForRateLimit(
   rateLimitName: string,
+  onWaiting?: (waitTimeSeconds: number) => void,
+  onWaitingEnd?: () => void,
 ): Promise<void> {
   debugApi('Checking rate limit before request (proactive check)', {
     rateLimitName,
@@ -206,6 +210,8 @@ export async function checkAndWaitForRateLimit(
     const adjustedWaitTime = Math.max(0, waitTime - timeSinceUpdate);
 
     if (adjustedWaitTime > 0) {
+      const waitTimeSeconds = Math.ceil(adjustedWaitTime / 1000);
+      
       debugApi('Waiting for rate limit reset (Redis)', {
         rateLimitName,
         remaining: rateLimitInfo.remaining,
@@ -213,11 +219,22 @@ export async function checkAndWaitForRateLimit(
         reset: rateLimitInfo.reset,
         period: rateLimitInfo.period,
         waitTimeMs: adjustedWaitTime,
+        waitTimeSeconds,
         timeSinceUpdateMs: timeSinceUpdate,
         timestamp: new Date().toISOString(),
       });
 
+      // Notify that we're waiting
+      if (onWaiting) {
+        onWaiting(waitTimeSeconds);
+      }
+
       await new Promise((resolve) => setTimeout(resolve, adjustedWaitTime));
+      
+      // Notify that waiting ended
+      if (onWaitingEnd) {
+        onWaitingEnd();
+      }
       
       // After waiting, refresh rate limit info from Redis
       // Another process might have updated it
@@ -232,7 +249,14 @@ export async function checkAndWaitForRateLimit(
             additionalWaitMs: additionalWait,
             timestamp: new Date().toISOString(),
           });
+          const additionalWaitSeconds = Math.ceil(additionalWait / 1000);
+          if (onWaiting) {
+            onWaiting(additionalWaitSeconds);
+          }
           await new Promise((resolve) => setTimeout(resolve, additionalWait));
+          if (onWaitingEnd) {
+            onWaitingEnd();
+          }
         }
       }
     }

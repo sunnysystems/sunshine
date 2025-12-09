@@ -19,9 +19,10 @@ import {
   calculateTotalUsage,
   calculateUtilization,
   extractTrendFromTimeseries,
+  extractDailyAbsoluteValues,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
-import { getServiceMapping, getUsageTypeFilter } from '@/lib/datadog/cost-guard/service-mapping';
+import { getServiceMapping, getUsageTypeFilter, getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
 import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkTenantAccess } from '@/lib/tenant';
@@ -161,6 +162,7 @@ export async function GET(request: NextRequest) {
     // If we have individual services, calculate based on them
     if (services && services.length > 0) {
       let totalCurrentCost = 0;
+      let totalProjectedCost = 0;
       const allTrends: number[] = [];
       let totalThreshold = 0;
 
@@ -218,7 +220,7 @@ export async function GET(request: NextRequest) {
 
           totalCurrentCost += serviceCost;
 
-          // Extract timeseries for trend
+          // Extract timeseries for trend and projection
           let timeseriesData: any = null;
           if (usageData?.data && Array.isArray(usageData.data)) {
             timeseriesData = usageData;
@@ -232,6 +234,20 @@ export async function GET(request: NextRequest) {
           const usageTypeFilter = getUsageTypeFilter(service.service_key);
           const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
           allTrends.push(...trend);
+
+          // Calculate projected usage for this service
+          const aggregationType = getAggregationType(service.service_key);
+          const dailyValues = extractDailyAbsoluteValues(timeseriesData, usageTypeFilter, aggregationType);
+          const projectedUsage = calculateProjection(dailyValues, usage, aggregationType, nowUTC);
+          
+          // Calculate projected cost for this service
+          let projectedServiceCost = 0;
+          if (service.unit.includes('host') || service.unit.includes('function') || service.unit.includes('Committer')) {
+            projectedServiceCost = projectedUsage * listPrice;
+          } else {
+            projectedServiceCost = projectedUsage * listPrice;
+          }
+          totalProjectedCost += projectedServiceCost;
 
           // Add to threshold
           const threshold = service.threshold !== null && service.threshold !== undefined
@@ -264,13 +280,8 @@ export async function GET(request: NextRequest) {
       // Note: Progress will be automatically cleaned up by cleanupOldProgress() 
       // after 5 minutes (called in /api/datadog/cost-guard/progress endpoint)
 
-      // Calculate projected spend (based on trend and list prices)
-      const avgTrend = allTrends.length > 0
-        ? allTrends.reduce((sum, t) => sum + t, 0) / allTrends.length
-        : 0;
-      const projectedSpend = contractedSpend > 0
-        ? calculateProjection([totalCurrentCost * (1 + avgTrend / 100)], 30)
-        : 0;
+      // Projected spend is already calculated as sum of individual service projections
+      const projectedSpend = totalProjectedCost;
 
       // Calculate utilization
       const utilization = contractedSpend > 0
@@ -334,6 +345,7 @@ export async function GET(request: NextRequest) {
     // Calculate total current usage across all products
     let totalCurrentUsage = 0;
     const allTrends: number[] = [];
+    const allDailyValues: Array<{ date: string; value: number }> = [];
 
     for (const [productFamily, data] of Object.entries(usageData)) {
       if (data.error) {
@@ -349,18 +361,44 @@ export async function GET(request: NextRequest) {
       
       totalCurrentUsage += usage;
 
-      const timeseries = data?.usage?.[0]?.timeseries || [];
-      const trend = extractTrendFromTimeseries(timeseries, 7);
+      // Extract timeseries for trend
+      let timeseriesData: any = null;
+      if (data?.data && Array.isArray(data.data)) {
+        timeseriesData = data;
+      } else if (data?.usage && Array.isArray(data.usage) && data.usage.length > 0) {
+        timeseriesData = data.usage[0]?.timeseries || data.usage;
+      } else if (data?.timeseries) {
+        timeseriesData = data.timeseries;
+      }
+      
+      const trend = extractTrendFromTimeseries(timeseriesData, 7);
       allTrends.push(...trend);
+      
+      // Extract daily values for projection (using SUM as default for fallback)
+      const dailyValues = extractDailyAbsoluteValues(timeseriesData, undefined, 'SUM');
+      
+      // Merge daily values (sum values for same date)
+      for (const daily of dailyValues) {
+        const existing = allDailyValues.find(d => d.date === daily.date);
+        if (existing) {
+          existing.value += daily.value;
+        } else {
+          allDailyValues.push({ ...daily });
+        }
+      }
     }
 
-    // Calculate projected spend (based on trend)
-    const avgTrend = allTrends.length > 0
-      ? allTrends.reduce((sum, t) => sum + t, 0) / allTrends.length
-      : 0;
-    const projectedSpend = contractedSpend > 0
-      ? calculateProjection([totalCurrentUsage * (avgTrend / 100)], 30)
-      : 0;
+    // Sort merged daily values by date
+    allDailyValues.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calculate projected usage using new method (SUM as default for fallback)
+    const projectedUsage = calculateProjection(allDailyValues, totalCurrentUsage, 'SUM', nowUTC);
+    
+    // For fallback, we don't have individual service prices, so we estimate based on current cost ratio
+    // This is a simplified approach - ideally we'd have service-level data
+    const projectedSpend = contractedSpend > 0 && totalCurrentUsage > 0
+      ? (projectedUsage / totalCurrentUsage) * contractedSpend
+      : contractedSpend;
 
     // Calculate utilization
     const utilization = contractedSpend > 0

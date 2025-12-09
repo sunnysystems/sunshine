@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
         total: progress.total,
         completed: progress.completed,
         current: progress.current,
+        rateLimitWaiting: progress.rateLimitWaiting || false,
+        rateLimitWaitTime: progress.rateLimitWaitTime || 0,
       },
       { status: 200 },
     );

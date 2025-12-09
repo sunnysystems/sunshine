@@ -12,6 +12,7 @@ import { ProgressIndicator } from '@/components/datadog/cost-guard/ProgressIndic
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
+import { getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
 
 type Status = 'ok' | 'watch' | 'critical';
 type MetricCategory = 'all' | 'logs' | 'apm' | 'infra' | 'experience';
@@ -52,7 +53,15 @@ export default function CostGuardMetricsPage() {
   const [timeoutError, setTimeoutError] = useState(false);
   const [retryAfter, setRetryAfter] = useState<number | undefined>(undefined);
   const [metricsData, setMetricsData] = useState<any[]>([]);
-  const [progress, setProgress] = useState({ progress: 0, total: 0, completed: 0, current: '' });
+  const [progress, setProgress] = useState({ 
+    progress: 0, 
+    total: 0, 
+    completed: 0, 
+    current: '',
+    rateLimitWaiting: false,
+    rateLimitWaitTime: 0,
+  });
+  const [rateLimitWaitCountdown, setRateLimitWaitCountdown] = useState<number | null>(null);
   
   // Refs to track polling and prevent loops
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -135,6 +144,13 @@ export default function CostGuardMetricsPage() {
           if (progressRes.ok) {
             const progressData = await progressRes.json();
             setProgress(progressData);
+            
+            // Update rate limit wait countdown if waiting
+            if (progressData.rateLimitWaiting && progressData.rateLimitWaitTime) {
+              setRateLimitWaitCountdown(Math.ceil(progressData.rateLimitWaitTime));
+            } else {
+              setRateLimitWaitCountdown(null);
+            }
             
             // Stop polling if progress is complete (100% or completed >= total)
             if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
@@ -296,6 +312,24 @@ export default function CostGuardMetricsPage() {
     };
   }, [fetchData]);
 
+  // Update rate limit countdown timer
+  useEffect(() => {
+    if (!progress.rateLimitWaiting || rateLimitWaitCountdown === null || rateLimitWaitCountdown <= 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setRateLimitWaitCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [progress.rateLimitWaiting, rateLimitWaitCountdown]);
+
   const metricConfigs: MetricConfig[] = useMemo(() => {
     if (metricsData.length === 0) {
       return [];
@@ -364,6 +398,10 @@ export default function CostGuardMetricsPage() {
         // Check if there's an error (hasError or error field)
         const hasError = (metric as any).hasError === true || (metric as any).error !== null && (metric as any).error !== undefined;
         
+        // Get aggregation type (MAX or SUM)
+        const serviceKey = isService ? (metric as any).serviceKey : metric.key;
+        const aggregationType = getAggregationType(serviceKey || '');
+        
         return {
           metric: metricName,
           unit: metricUnit,
@@ -375,7 +413,7 @@ export default function CostGuardMetricsPage() {
             type: metric.status,
             label: statusLabel,
           },
-          action: labelBase ? t(`${labelBase}.action`) : '',
+          aggregationType,
         };
       }),
     [filteredMetrics, t],
@@ -393,6 +431,24 @@ export default function CostGuardMetricsPage() {
           </p>
         </header>
         <div className="space-y-4">
+          {progress.rateLimitWaiting && rateLimitWaitCountdown !== null && rateLimitWaitCountdown > 0 && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+                    {t('datadog.costGuard.api.rateLimit.waitingForReset')}
+                  </p>
+                  <p className="text-xs text-amber-600/80 dark:text-amber-500/80">
+                    {t('datadog.costGuard.api.rateLimit.waitingTime', { seconds: rateLimitWaitCountdown })}
+                  </p>
+                </div>
+                <div className="text-lg font-semibold text-amber-600 dark:text-amber-500">
+                  {rateLimitWaitCountdown}s
+                </div>
+              </div>
+            </div>
+          )}
           {progress.total > 0 && (
             <ProgressIndicator
               progress={progress.progress}
@@ -525,7 +581,7 @@ export default function CostGuardMetricsPage() {
           threshold: t('datadog.costGuard.table.thresholdColumn'),
           projected: t('datadog.costGuard.table.projectedColumn'),
           status: t('datadog.costGuard.table.statusColumn'),
-          action: t('datadog.costGuard.table.actionsColumn'),
+          aggregationType: t('datadog.costGuard.table.aggregationTypeColumn'),
         }}
         rows={tableRows}
       />

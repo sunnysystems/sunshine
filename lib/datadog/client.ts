@@ -692,9 +692,13 @@ function aggregateUsageData(responses: Array<{ data?: any[]; usage?: any[]; erro
  * @param rateLimitName Name of the rate limit (e.g., "usage_metering")
  * @returns Promise that resolves when it's safe to make a request
  */
-async function checkAndWaitForRateLimit(rateLimitName: string): Promise<void> {
+async function checkAndWaitForRateLimit(
+  rateLimitName: string,
+  onWaiting?: (waitTimeSeconds: number) => void,
+  onWaitingEnd?: () => void,
+): Promise<void> {
   // Use Redis-based rate limit checking for centralized control
-  await checkAndWaitForRateLimitRedis(rateLimitName);
+  await checkAndWaitForRateLimitRedis(rateLimitName, onWaiting, onWaitingEnd);
 }
 
 /**

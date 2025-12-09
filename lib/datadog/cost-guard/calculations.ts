@@ -5,47 +5,264 @@
 import type { MetricUsage } from './types';
 
 /**
- * Calculate projected usage based on historical trend
- * Uses linear regression on the last N days
+ * Extract daily absolute values from Datadog usage timeseries
+ * Returns absolute values (not normalized) for the current month
+ * @param timeseries - The timeseries data from Datadog API
+ * @param usageTypeFilter - Optional filter function to filter measurements by usage_type
+ * @param aggregationType - 'MAX' for capacity metrics, 'SUM' for volume metrics
+ * @returns Array of daily values with their dates: [{ date: string, value: number }]
+ */
+export function extractDailyAbsoluteValues(
+  timeseries: any,
+  usageTypeFilter?: (usageType: string) => boolean,
+  aggregationType: 'MAX' | 'SUM' = 'SUM',
+): Array<{ date: string; value: number }> {
+  if (!timeseries) {
+    return [];
+  }
+
+  let dataPoints: Array<{ timestamp: string; value: number }> = [];
+
+  // Handle v2 API format: { data: [{ attributes: { timestamp, measurements: [...] } }] }
+  if (timeseries.data && Array.isArray(timeseries.data)) {
+    for (const hourlyUsage of timeseries.data) {
+      const timestamp = hourlyUsage.attributes?.timestamp;
+      if (timestamp && hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        // Sum or max measurements for this hour, applying filter if provided
+        let hourValue = 0;
+        if (aggregationType === 'MAX') {
+          let hourMax = 0;
+          for (const measurement of hourlyUsage.attributes.measurements) {
+            if (usageTypeFilter && !usageTypeFilter(measurement.usage_type)) {
+              continue;
+            }
+            if (typeof measurement.value === 'number') {
+              hourMax = Math.max(hourMax, measurement.value);
+            }
+          }
+          hourValue = hourMax;
+        } else {
+          // SUM
+          for (const measurement of hourlyUsage.attributes.measurements) {
+            if (usageTypeFilter && !usageTypeFilter(measurement.usage_type)) {
+              continue;
+            }
+            if (typeof measurement.value === 'number') {
+              hourValue += measurement.value;
+            }
+          }
+        }
+        if (hourValue > 0) {
+          dataPoints.push({ timestamp, value: hourValue });
+        }
+      }
+    }
+  }
+
+  // Handle array of timeseries objects (from legacy /usage/{product})
+  if (Array.isArray(timeseries) && !(timeseries as any).data) {
+    for (const entry of timeseries) {
+      if (typeof entry === 'object') {
+        for (const [timestamp, value] of Object.entries(entry)) {
+          if (typeof value === 'number') {
+            dataPoints.push({ timestamp, value });
+          }
+        }
+      }
+    }
+  }
+
+  // Handle timeseries format from legacy /usage/timeseries
+  if (timeseries.values && Array.isArray(timeseries.values)) {
+    const timestamps = timeseries.timestamps || [];
+    timeseries.values.forEach((value: number, index: number) => {
+      if (typeof value === 'number' && timestamps[index]) {
+        dataPoints.push({ timestamp: timestamps[index], value });
+      }
+    });
+  }
+
+  // Handle legacy usage array format
+  if (timeseries.usage && Array.isArray(timeseries.usage)) {
+    for (const entry of timeseries.usage) {
+      if (entry.timeseries && Array.isArray(entry.timeseries)) {
+        for (const ts of entry.timeseries) {
+          for (const [timestamp, value] of Object.entries(ts)) {
+            if (typeof value === 'number') {
+              dataPoints.push({ timestamp, value });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (dataPoints.length === 0) {
+    return [];
+  }
+
+  // Sort by timestamp
+  dataPoints.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  // Aggregate by day
+  const dailyValues: Map<string, number> = new Map();
+
+  for (const point of dataPoints) {
+    const date = point.timestamp.split('T')[0];
+    const currentValue = dailyValues.get(date) || 0;
+    
+    if (aggregationType === 'MAX') {
+      dailyValues.set(date, Math.max(currentValue, point.value || 0));
+    } else {
+      // SUM
+      dailyValues.set(date, currentValue + (point.value || 0));
+    }
+  }
+
+  // Convert to array and sort by date
+  return Array.from(dailyValues.entries())
+    .map(([date, value]) => ({ date, value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Calculate days remaining in the current month
+ * @param currentDate - Current date (defaults to now)
+ * @returns Number of days remaining in the month (including today)
+ */
+export function getDaysRemainingInMonth(currentDate: Date = new Date()): number {
+  const year = currentDate.getUTCFullYear();
+  const month = currentDate.getUTCMonth();
+  const day = currentDate.getUTCDate();
+  
+  // Get last day of the month
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  
+  // Days remaining = last day - current day + 1 (including today)
+  return lastDay - day + 1;
+}
+
+/**
+ * Calculate days elapsed in the current month
+ * @param currentDate - Current date (defaults to now)
+ * @returns Number of days elapsed in the month (including today)
+ */
+export function getDaysElapsedInMonth(currentDate: Date = new Date()): number {
+  return currentDate.getUTCDate();
+}
+
+/**
+ * Calculate projected usage until end of current month
+ * Uses hybrid approach: daily average with trend adjustment
+ * @param dailyValues - Array of daily absolute values from current month
+ * @param currentUsage - Current accumulated usage for the month
+ * @param aggregationType - 'MAX' for capacity metrics, 'SUM' for volume metrics
+ * @param currentDate - Current date (defaults to now)
+ * @returns Projected total usage for the entire month
  */
 export function calculateProjection(
-  historicalData: number[],
-  days: number = 30,
+  dailyValues: Array<{ date: string; value: number }>,
+  currentUsage: number,
+  aggregationType: 'MAX' | 'SUM',
+  currentDate: Date = new Date(),
 ): number {
-  if (historicalData.length < 2) {
-    return historicalData[historicalData.length - 1] || 0;
+  const daysElapsed = getDaysElapsedInMonth(currentDate);
+  const daysRemaining = getDaysRemainingInMonth(currentDate);
+
+  // If no historical data, return current usage as projection
+  if (dailyValues.length === 0) {
+    return currentUsage;
   }
 
-  // Use last N data points
-  const data = historicalData.slice(-days);
-  const n = data.length;
+  // For MAX metrics (capacity)
+  if (aggregationType === 'MAX') {
+    // Get maximum value from daily values
+    const maxValue = dailyValues.length > 0
+      ? Math.max(...dailyValues.map(d => d.value), 0)
+      : 0;
+    
+    if (maxValue === 0) {
+      return currentUsage;
+    }
 
-  if (n < 2) {
-    return data[0] || 0;
+    // Calculate trend of maximum values
+    if (dailyValues.length >= 2 && daysElapsed > 0) {
+      const recentMaxes = dailyValues.slice(-7).map(d => d.value);
+      const oldestMax = recentMaxes[0];
+      const newestMax = recentMaxes[recentMaxes.length - 1];
+      
+      if (oldestMax > 0) {
+        const growthRate = (newestMax - oldestMax) / oldestMax;
+        // Project maximum forward with growth rate
+        // Use daysElapsed to normalize the growth rate projection
+        const projectionFactor = daysElapsed > 0 ? daysRemaining / daysElapsed : 1;
+        const projectedMax = maxValue * (1 + growthRate * projectionFactor);
+        return Math.max(maxValue, projectedMax);
+      }
+    }
+
+    // If no trend or first day of month, use current maximum
+    return maxValue;
   }
 
-  // Simple linear regression
-  let sumX = 0;
-  let sumY = 0;
-  let sumXY = 0;
-  let sumX2 = 0;
-
-  for (let i = 0; i < n; i++) {
-    const x = i;
-    const y = data[i];
-    sumX += x;
-    sumY += y;
-    sumXY += x * y;
-    sumX2 += x * x;
+  // For SUM metrics (volume)
+  // Calculate average daily usage from available days
+  const totalFromDailyValues = dailyValues.reduce((sum, d) => sum + d.value, 0);
+  const daysWithData = dailyValues.length;
+  
+  if (daysWithData === 0) {
+    return currentUsage;
   }
 
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  const intercept = (sumY - slope * sumX) / n;
+  const averageDailyUsage = totalFromDailyValues / daysWithData;
 
-  // Project forward by the number of days remaining in the period
-  const projection = slope * (n + days) + intercept;
+  // Safety check: if average daily usage is way larger than current usage per day,
+  // something is wrong with the data (probably unit mismatch)
+  // Use current usage per day as a sanity check
+  const currentUsagePerDay = daysElapsed > 0 ? currentUsage / daysElapsed : currentUsage;
+  if (averageDailyUsage > currentUsagePerDay * 10) {
+    // If average is more than 10x current daily average, use current daily average instead
+    const projectedRemaining = currentUsagePerDay * daysRemaining;
+    return Math.max(currentUsage, Math.round(currentUsage + projectedRemaining));
+  }
 
-  return Math.max(0, Math.round(projection));
+  // Calculate trend adjustment from recent days (last 7 days or all available)
+  let trendAdjustment = 0;
+  if (dailyValues.length >= 2) {
+    const recentDays = Math.min(7, dailyValues.length);
+    const recentValues = dailyValues.slice(-recentDays).map(d => d.value);
+    const olderValues = dailyValues.slice(-recentDays * 2, -recentDays).map(d => d.value);
+    
+    if (olderValues.length > 0) {
+      const recentAvg = recentValues.reduce((sum, v) => sum + v, 0) / recentValues.length;
+      const olderAvg = olderValues.reduce((sum, v) => sum + v, 0) / olderValues.length;
+      
+      if (olderAvg > 0) {
+        trendAdjustment = (recentAvg - olderAvg) / olderAvg;
+        // Cap trend adjustment to reasonable bounds (-50% to +100%)
+        trendAdjustment = Math.max(-0.5, Math.min(1.0, trendAdjustment));
+      }
+    }
+  }
+
+  // Projection = current usage + (average daily * days remaining) * (1 + trend adjustment)
+  // Handle edge case: if daysRemaining is 0 (last day of month), just return current usage
+  if (daysRemaining <= 0) {
+    return currentUsage;
+  }
+
+  const projectedRemaining = averageDailyUsage * daysRemaining * (1 + trendAdjustment);
+  const projectedTotal = currentUsage + projectedRemaining;
+
+  // Final safety check: projection shouldn't be more than 5x current usage
+  const maxReasonableProjection = currentUsage * 5;
+  if (projectedTotal > maxReasonableProjection) {
+    // Fallback to simple linear projection based on current daily rate
+    const projectedRemainingSafe = currentUsagePerDay * daysRemaining;
+    return Math.max(currentUsage, Math.round(currentUsage + projectedRemainingSafe));
+  }
+
+  return Math.max(currentUsage, Math.round(projectedTotal));
 }
 
 /**
@@ -217,7 +434,7 @@ export function extractTrendFromTimeseries(
   }
 
   // Handle array of timeseries objects (from legacy /usage/{product})
-  if (Array.isArray(timeseries) && !timeseries.data) {
+  if (Array.isArray(timeseries) && !(timeseries as any).data) {
     for (const entry of timeseries) {
       if (typeof entry === 'object') {
         for (const [timestamp, value] of Object.entries(entry)) {
