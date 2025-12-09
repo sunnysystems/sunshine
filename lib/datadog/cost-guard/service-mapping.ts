@@ -195,9 +195,10 @@ function extractIngestedSpans(data: any): number {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
           if (
+            measurement.usage_type === 'ingested_events_bytes' ||
             measurement.usage_type === 'ingested_spans' ||
             measurement.usage_type === 'span_ingestion' ||
-            measurement.usage_type?.includes('ingested') && measurement.usage_type?.includes('span')
+            (measurement.usage_type?.includes('ingested') && measurement.usage_type?.includes('span'))
           ) {
             total += measurement.value || 0;
           }
@@ -724,6 +725,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'ingested_spans':
       return (usageType: string) =>
+        usageType === 'ingested_events_bytes' ||
         usageType === 'ingested_spans' ||
         usageType === 'span_ingestion' ||
         (usageType?.includes('ingested') && usageType?.includes('span'));
