@@ -552,7 +552,7 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   ingested_spans: {
     serviceKey: 'ingested_spans',
     serviceName: 'Ingested Spans',
-    productFamily: 'indexed_spans',
+    productFamily: 'ingested_spans',
     usageType: 'ingested_spans',
     unit: 'GB',
     category: 'apm',
