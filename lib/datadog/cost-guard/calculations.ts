@@ -266,6 +266,301 @@ export function calculateProjection(
 }
 
 /**
+ * Calculate daily forecast values until end of current month
+ * Returns an array of daily forecasted values for the remaining days of the month
+ * @param dailyValues - Array of daily absolute values from current month (actual data)
+ * @param currentUsage - Current accumulated usage for the month
+ * @param projectedTotal - Projected total usage for the entire month (from calculateProjection)
+ * @param aggregationType - 'MAX' for capacity metrics, 'SUM' for volume metrics
+ * @param currentDate - Current date (defaults to now)
+ * @returns Array of daily forecast values: [{ date: string, value: number }]
+ */
+export function calculateDailyForecast(
+  dailyValues: Array<{ date: string; value: number }>,
+  currentUsage: number,
+  projectedTotal: number,
+  aggregationType: 'MAX' | 'SUM',
+  currentDate: Date = new Date(),
+): Array<{ date: string; value: number }> {
+  const daysRemaining = getDaysRemainingInMonth(currentDate);
+  
+  // If no days remaining, return empty array
+  if (daysRemaining <= 0) {
+    return [];
+  }
+
+  // Calculate remaining forecast (projected total - current usage)
+  const remainingForecast = Math.max(0, projectedTotal - currentUsage);
+
+  // For MAX metrics (capacity), use the maximum value from daily values
+  if (aggregationType === 'MAX') {
+    const maxValue = dailyValues.length > 0
+      ? Math.max(...dailyValues.map(d => d.value), 0)
+      : 0;
+    
+    if (maxValue === 0) {
+      // If no data, use current usage as daily value
+      const dailyValue = currentUsage > 0 ? currentUsage : 0;
+      return generateDailyForecastDates(currentDate, daysRemaining, dailyValue);
+    }
+
+    // Use the maximum value for all forecast days
+    return generateDailyForecastDates(currentDate, daysRemaining, maxValue);
+  }
+
+  // For SUM metrics (volume)
+  // Calculate average daily usage from actual data
+  const daysWithData = dailyValues.length;
+  let averageDailyUsage = 0;
+
+  if (daysWithData > 0) {
+    const totalFromDailyValues = dailyValues.reduce((sum, d) => sum + d.value, 0);
+    averageDailyUsage = totalFromDailyValues / daysWithData;
+  } else {
+    // If no historical data, use current usage per day
+    const daysElapsed = getDaysElapsedInMonth(currentDate);
+    averageDailyUsage = daysElapsed > 0 ? currentUsage / daysElapsed : currentUsage;
+  }
+
+  // Calculate trend adjustment from recent days (similar to calculateProjection)
+  let trendAdjustment = 0;
+  if (dailyValues.length >= 2) {
+    const recentDays = Math.min(7, dailyValues.length);
+    const recentValues = dailyValues.slice(-recentDays).map(d => d.value);
+    const olderValues = dailyValues.slice(-recentDays * 2, -recentDays).map(d => d.value);
+    
+    if (olderValues.length > 0) {
+      const recentAvg = recentValues.reduce((sum, v) => sum + v, 0) / recentValues.length;
+      const olderAvg = olderValues.reduce((sum, v) => sum + v, 0) / olderValues.length;
+      
+      if (olderAvg > 0) {
+        trendAdjustment = (recentAvg - olderAvg) / olderAvg;
+        // Cap trend adjustment to reasonable bounds (-50% to +100%)
+        trendAdjustment = Math.max(-0.5, Math.min(1.0, trendAdjustment));
+      }
+    }
+  }
+
+  // Calculate daily forecast value with trend adjustment
+  const dailyForecastValue = averageDailyUsage * (1 + trendAdjustment);
+
+  // Distribute remaining forecast proportionally
+  // If remaining forecast is very different from simple daily average * days remaining,
+  // adjust the daily forecast value
+  const simpleRemaining = dailyForecastValue * daysRemaining;
+  const adjustmentFactor = simpleRemaining > 0 ? remainingForecast / simpleRemaining : 1;
+  const adjustedDailyValue = dailyForecastValue * adjustmentFactor;
+
+  return generateDailyForecastDates(currentDate, daysRemaining, adjustedDailyValue);
+}
+
+/**
+ * Generate daily forecast dates for remaining days of the month
+ * @param currentDate - Current date
+ * @param daysRemaining - Number of days remaining in the month
+ * @param dailyValue - Value to use for each day
+ * @returns Array of daily forecast values with dates
+ */
+function generateDailyForecastDates(
+  currentDate: Date,
+  daysRemaining: number,
+  dailyValue: number,
+): Array<{ date: string; value: number }> {
+  const forecast: Array<{ date: string; value: number }> = [];
+  const year = currentDate.getUTCFullYear();
+  const month = currentDate.getUTCMonth();
+  const currentDay = currentDate.getUTCDate();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+  // Start from tomorrow (currentDay + 1) and go until last day of month
+  for (let day = currentDay + 1; day <= lastDay; day++) {
+    const date = new Date(Date.UTC(year, month, day));
+    const dateString = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    forecast.push({ date: dateString, value: Math.max(0, Math.round(dailyValue)) });
+  }
+
+  return forecast;
+}
+
+/**
+ * Generate all days of the current month with actual and forecast values
+ * Returns an array with all days of the month, filled with actual data where available
+ * and forecast data for remaining days. The last day shows the projected total.
+ * @param dailyValues - Array of daily absolute values from current month (actual data)
+ * @param currentUsage - Current accumulated usage for the month
+ * @param projectedTotal - Projected total usage for the entire month
+ * @param aggregationType - 'MAX' for capacity metrics, 'SUM' for volume metrics
+ * @param currentDate - Current date (defaults to now)
+ * @returns Array of all days in month: [{ date: string; value: number; isForecast: boolean }]
+ */
+export function generateMonthlyDays(
+  dailyValues: Array<{ date: string; value: number }>,
+  currentUsage: number,
+  projectedTotal: number,
+  aggregationType: 'MAX' | 'SUM',
+  currentDate: Date = new Date(),
+): Array<{ date: string; value: number; isForecast: boolean }> {
+  const year = currentDate.getUTCFullYear();
+  const month = currentDate.getUTCMonth();
+  const currentDay = currentDate.getUTCDate();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const daysRemaining = getDaysRemainingInMonth(currentDate);
+
+  // Create a map of actual daily values for quick lookup
+  const actualValuesMap = new Map<string, number>();
+  dailyValues.forEach((day) => {
+    actualValuesMap.set(day.date, day.value);
+  });
+
+  // Calculate forecast values for remaining days
+  const remainingForecast = Math.max(0, projectedTotal - currentUsage);
+  let dailyForecastValue = 0;
+
+  if (daysRemaining > 0) {
+    if (aggregationType === 'MAX') {
+      // For MAX metrics, use the maximum value from daily values
+      const maxValue = dailyValues.length > 0
+        ? Math.max(...dailyValues.map(d => d.value), 0)
+        : currentUsage;
+      dailyForecastValue = maxValue > 0 ? maxValue : currentUsage;
+    } else {
+      // For SUM metrics, calculate average daily usage
+      const daysWithData = dailyValues.length;
+      let averageDailyUsage = 0;
+
+      if (daysWithData > 0) {
+        const totalFromDailyValues = dailyValues.reduce((sum, d) => sum + d.value, 0);
+        averageDailyUsage = totalFromDailyValues / daysWithData;
+      } else {
+        const daysElapsed = getDaysElapsedInMonth(currentDate);
+        averageDailyUsage = daysElapsed > 0 ? currentUsage / daysElapsed : currentUsage;
+      }
+
+      // Calculate trend adjustment
+      let trendAdjustment = 0;
+      if (dailyValues.length >= 2) {
+        const recentDays = Math.min(7, dailyValues.length);
+        const recentValues = dailyValues.slice(-recentDays).map(d => d.value);
+        const olderValues = dailyValues.slice(-recentDays * 2, -recentDays).map(d => d.value);
+        
+        if (olderValues.length > 0) {
+          const recentAvg = recentValues.reduce((sum, v) => sum + v, 0) / recentValues.length;
+          const olderAvg = olderValues.reduce((sum, v) => sum + v, 0) / olderValues.length;
+          
+          if (olderAvg > 0) {
+            trendAdjustment = (recentAvg - olderAvg) / olderAvg;
+            trendAdjustment = Math.max(-0.5, Math.min(1.0, trendAdjustment));
+          }
+        }
+      }
+
+      dailyForecastValue = averageDailyUsage * (1 + trendAdjustment);
+      
+      // Adjust to match remaining forecast
+      const simpleRemaining = dailyForecastValue * daysRemaining;
+      if (simpleRemaining > 0) {
+        const adjustmentFactor = remainingForecast / simpleRemaining;
+        dailyForecastValue = dailyForecastValue * adjustmentFactor;
+      }
+    }
+  }
+
+  // Generate all days of the month
+  const allDays: Array<{ date: string; value: number; isForecast: boolean }> = [];
+  
+  // For SUM metrics, we need to accumulate daily values
+  // For MAX metrics, we use the daily value directly
+  let cumulativeValue = 0; // Track cumulative value for SUM metrics
+  
+  for (let day = 1; day <= lastDay; day++) {
+    const date = new Date(Date.UTC(year, month, day));
+    const dateString = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    
+    // Check if we have actual data for this day
+    if (actualValuesMap.has(dateString)) {
+      const dailyValue = actualValuesMap.get(dateString)!;
+      
+      if (aggregationType === 'MAX') {
+        // For MAX metrics, use the daily value directly
+        allDays.push({
+          date: dateString,
+          value: dailyValue,
+          isForecast: false,
+        });
+      } else {
+        // For SUM metrics, accumulate the daily value
+        cumulativeValue += dailyValue;
+        allDays.push({
+          date: dateString,
+          value: cumulativeValue,
+          isForecast: false,
+        });
+      }
+    } else if (day > currentDay) {
+      // This is a future day - use forecast
+      if (aggregationType === 'MAX') {
+        // For MAX metrics, use the daily forecast value (not cumulative)
+        allDays.push({
+          date: dateString,
+          value: Math.max(0, Math.round(dailyForecastValue)),
+          isForecast: true,
+        });
+      } else {
+        // For SUM metrics, calculate cumulative forecast
+        // The last day must show projectedTotal
+        if (day === lastDay) {
+          allDays.push({
+            date: dateString,
+            value: projectedTotal,
+            isForecast: true,
+          });
+        } else {
+          // Interpolate between current cumulative value and projectedTotal
+          const daysFromNow = day - currentDay;
+          const totalForecastDays = daysRemaining;
+          const progress = daysFromNow / totalForecastDays; // 0 to 1
+          const forecastValue = cumulativeValue + (projectedTotal - cumulativeValue) * progress;
+          allDays.push({
+            date: dateString,
+            value: Math.max(0, Math.round(forecastValue)),
+            isForecast: true,
+          });
+        }
+      }
+    } else {
+      // Past day without data
+      // For SUM metrics, calculate cumulative value up to this day
+      // For MAX metrics, use 0
+      if (aggregationType === 'MAX') {
+        allDays.push({
+          date: dateString,
+          value: 0,
+          isForecast: false,
+        });
+      } else {
+        // For SUM, calculate the cumulative value up to this specific day
+        // by summing all actual values from day 1 to this day
+        let dayCumulativeValue = 0;
+        for (let d = 1; d <= day; d++) {
+          const dDate = new Date(Date.UTC(year, month, d));
+          const dDateString = dDate.toISOString().split('T')[0];
+          if (actualValuesMap.has(dDateString)) {
+            dayCumulativeValue += actualValuesMap.get(dDateString)!;
+          }
+        }
+        allDays.push({
+          date: dateString,
+          value: dayCumulativeValue,
+          isForecast: false,
+        });
+      }
+    }
+  }
+
+  return allDays;
+}
+
+/**
  * Calculate utilization percentage
  */
 export function calculateUtilization(

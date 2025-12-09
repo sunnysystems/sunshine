@@ -25,6 +25,8 @@ function extractInfraHostEnterprise(data: any): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'infra_host_enterprise' ||
     usageType === 'infra_host_enterprise_usage' ||
+    usageType === 'apm_host_count' ||
+    usageType === 'apm_host_count_incl_usm' ||
     (usageType?.includes('enterprise') && usageType?.includes('host'))
   );
   
@@ -39,11 +41,11 @@ function extractInfraHostEnterprise(data: any): number {
   
   // Fallback: try to find any host-related usage_type and get max
   // Don't use calculateTotalUsage as it sums everything (wrong for capacity metrics)
+  // Note: apm_host_count is a valid host type, so we include it in fallback
   const fallbackMax = extractMaxUsage(data, (usageType) =>
-    usageType?.includes('host') && 
+    (usageType?.includes('host') || usageType === 'apm_host_count' || usageType === 'apm_host_count_incl_usm') && 
     !usageType?.includes('container') && 
-    !usageType?.includes('database') &&
-    !usageType?.includes('apm')
+    !usageType?.includes('database')
   );
   
   if (fallbackMax > 0) {
@@ -708,7 +710,13 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
       return (usageType: string) =>
         usageType === 'infra_host_enterprise' ||
         usageType === 'infra_host_enterprise_usage' ||
-        (usageType?.includes('enterprise') && usageType?.includes('host'));
+        usageType === 'apm_host_count' ||
+        usageType === 'apm_host_count_incl_usm' ||
+        (usageType?.includes('enterprise') && usageType?.includes('host')) ||
+        // Fallback: include host types that aren't containers or database
+        (usageType?.includes('host') && 
+         !usageType?.includes('container') && 
+         !usageType?.includes('database'));
     
     case 'containers':
       return (usageType: string) =>

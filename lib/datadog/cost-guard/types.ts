@@ -68,6 +68,11 @@ export interface ServiceUsage {
   threshold?: number | null;
   projected: number;
   trend: number[];
+  dailyValues?: Array<{ date: string; value: number }>; // Daily absolute values from current month
+  dailyForecast?: Array<{ date: string; value: number }>; // Daily forecasted values for remaining days
+  monthlyDays?: Array<{ date: string; value: number; isForecast: boolean }>; // All days of month with actual/forecast flag
+  daysElapsed?: number; // Days elapsed in current month
+  daysRemaining?: number; // Days remaining in current month
   status: 'ok' | 'watch' | 'critical';
   category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
   unit: string;

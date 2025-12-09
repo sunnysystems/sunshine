@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
+import { formatNumberWithDecimals } from '@/lib/utils';
 
 type Status = 'ok' | 'watch' | 'critical';
 type MetricCategory = 'all' | 'logs' | 'apm' | 'infra' | 'experience';
@@ -41,6 +42,12 @@ interface MetricConfig {
   serviceName?: string;
   serviceKey?: string;
   unit?: string;
+  // Daily values and forecast data
+  dailyValues?: Array<{ date: string; value: number }>;
+  dailyForecast?: Array<{ date: string; value: number }>;
+  monthlyDays?: Array<{ date: string; value: number; isForecast: boolean }>;
+  daysElapsed?: number;
+  daysRemaining?: number;
 }
 
 export default function CostGuardMetricsPage() {
@@ -248,21 +255,28 @@ export default function CostGuardMetricsPage() {
       if (data.services && Array.isArray(data.services) && data.services.length > 0) {
         // Convert services to metrics format for backward compatibility
         // Use serviceKey as a unique identifier, and serviceName for display
-        const servicesAsMetrics = data.services.map((service: any) => ({
-          key: service.serviceKey || `service_${service.serviceName?.toLowerCase().replace(/\s+/g, '_')}` || 'unknown',
-          serviceKey: service.serviceKey,
-          serviceName: service.serviceName,
-          usage: service.usage || 0,
-          committed: service.committed || 0,
-          threshold: service.threshold ?? null,
-          projected: service.projected || service.usage || 0,
-          trend: service.trend || [],
-          status: service.status || 'ok',
-          category: service.category || 'logs',
-          unit: service.unit || '',
-          hasError: service.hasError || false,
-          error: service.error || null,
-        }));
+        const servicesAsMetrics = data.services.map((service: any) => {
+          return {
+            key: service.serviceKey || `service_${service.serviceName?.toLowerCase().replace(/\s+/g, '_')}` || 'unknown',
+            serviceKey: service.serviceKey,
+            serviceName: service.serviceName,
+            usage: service.usage || 0,
+            committed: service.committed || 0,
+            threshold: service.threshold ?? null,
+            projected: service.projected || service.usage || 0,
+            trend: service.trend || [],
+            dailyValues: service.dailyValues,
+            dailyForecast: service.dailyForecast,
+            monthlyDays: service.monthlyDays,
+            daysElapsed: service.daysElapsed,
+            daysRemaining: service.daysRemaining,
+            status: service.status || 'ok',
+            category: service.category || 'logs',
+            unit: service.unit || '',
+            hasError: service.hasError || false,
+            error: service.error || null,
+          };
+        });
         setMetricsData(servicesAsMetrics);
       } else {
         // Fallback to old metrics format
@@ -362,6 +376,12 @@ export default function CostGuardMetricsPage() {
         category: mappedCategory,
         // Preserve service data for rendering
         ...(metric.serviceName && { serviceName: metric.serviceName, serviceKey: metric.serviceKey, unit: metric.unit }),
+        // Preserve daily values and forecast data
+        dailyValues: (metric as any).dailyValues,
+        dailyForecast: (metric as any).dailyForecast,
+        monthlyDays: (metric as any).monthlyDays,
+        daysElapsed: (metric as any).daysElapsed,
+        daysRemaining: (metric as any).daysRemaining,
       };
     });
   }, [metricsData]);
@@ -405,10 +425,10 @@ export default function CostGuardMetricsPage() {
         return {
           metric: metricName,
           unit: metricUnit,
-          usage: hasError ? 'N/A' : metric.usage.toLocaleString(),
-          limit: metric.committed.toLocaleString(),
-          threshold: metric.threshold ? metric.threshold.toLocaleString() : null,
-          projected: hasError ? 'N/A' : metric.projected.toLocaleString(),
+          usage: hasError ? 'N/A' : formatNumberWithDecimals(metric.usage) || '',
+          limit: formatNumberWithDecimals(metric.committed) || '',
+          threshold: formatNumberWithDecimals(metric.threshold),
+          projected: hasError ? 'N/A' : formatNumberWithDecimals(metric.projected) || '',
           status: {
             type: metric.status,
             label: statusLabel,
@@ -509,18 +529,22 @@ export default function CostGuardMetricsPage() {
         ))}
       </div>
 
-      <div className="grid gap-3 text-xs text-muted-foreground md:grid-cols-3">
+      <div className="grid gap-3 text-xs text-muted-foreground md:grid-cols-4">
         <div className="flex items-center gap-1">
           <span className="h-2 w-8 rounded-full bg-primary" />
           {t('datadog.costGuard.metricsSection.usageLabel')}
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-2 w-8 rounded-full bg-primary/40" />
-          {t('datadog.costGuard.metricsSection.projectionLabel')}
+          <span className="h-2 w-8 rounded-full border-2 border-dashed border-blue-500 bg-transparent" />
+          Forecast
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-2 w-8 rounded-full bg-destructive/60" />
-          {t('datadog.costGuard.metricsSection.thresholdLabel')}
+          <span className="h-2 w-8 rounded-full bg-amber-500/60" />
+          Threshold
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="h-2 w-8 rounded-full bg-red-500/60" />
+          Limit
         </div>
       </div>
 
@@ -560,6 +584,11 @@ export default function CostGuardMetricsPage() {
               threshold={metric.threshold ?? null}
               projected={hasError ? 'N/A' : metric.projected}
               trend={metric.trend}
+              dailyValues={metric.dailyValues}
+              dailyForecast={metric.dailyForecast}
+              monthlyDays={metric.monthlyDays}
+              daysElapsed={metric.daysElapsed}
+              daysRemaining={metric.daysRemaining}
               statusBadge={
                 <Badge variant="outline" className="border px-2 py-0.5 text-xs font-medium">
                   {statusLabel}

@@ -14,11 +14,15 @@ import {
 } from '@/lib/datadog/client';
 import {
   calculateProjection,
+  calculateDailyForecast,
+  generateMonthlyDays,
   calculateTotalUsage,
   calculateUtilization,
   determineStatus,
   extractTrendFromTimeseries,
   extractDailyAbsoluteValues,
+  getDaysElapsedInMonth,
+  getDaysRemainingInMonth,
   bytesToGB,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping, SERVICE_MAPPINGS, getUsageTypeFilter, getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
@@ -332,7 +336,7 @@ export async function GET(request: NextRequest) {
 
           // Get usage_type filter for this specific service to ensure trend only includes this service's data
           const usageTypeFilter = getUsageTypeFilter(service.service_key);
-          const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
+          const trend = extractTrendFromTimeseries(timeseriesData, 30, usageTypeFilter);
           
           // Extract daily absolute values for projection calculation
           const aggregationType = getAggregationType(service.service_key);
@@ -365,6 +369,16 @@ export async function GET(request: NextRequest) {
           const now = new Date();
           const projected = calculateProjection(dailyValues, totalUsage, aggregationType, now);
           
+          // Generate all days of the month with actual and forecast values
+          const monthlyDays = generateMonthlyDays(dailyValues, totalUsage, projected, aggregationType, now);
+          
+          // Separate actual and forecast for backward compatibility
+          const dailyForecast = monthlyDays.filter(d => d.isForecast).map(d => ({ date: d.date, value: d.value }));
+          
+          // Get metadata
+          const daysElapsed = getDaysElapsedInMonth(now);
+          const daysRemaining = getDaysRemainingInMonth(now);
+          
           const committed = Number(service.quantity) || 0;
           const threshold = service.threshold !== null && service.threshold !== undefined
             ? Number(service.threshold)
@@ -380,6 +394,11 @@ export async function GET(request: NextRequest) {
             threshold,
             projected,
             trend,
+            dailyValues,
+            dailyForecast,
+            monthlyDays: monthlyDays, // All days of month with isForecast flag
+            daysElapsed,
+            daysRemaining,
             status,
             category: mapping.category,
             unit: service.unit,
@@ -560,7 +579,7 @@ export async function GET(request: NextRequest) {
         timeseriesData = data.timeseries;
       }
       
-      const trend = extractTrendFromTimeseries(timeseriesData, 7);
+      const trend = extractTrendFromTimeseries(timeseriesData, 30);
       
       // For fallback, use SUM as default (most metrics are volume-based)
       // Extract daily absolute values for projection
@@ -569,6 +588,16 @@ export async function GET(request: NextRequest) {
       // Calculate projection using new method
       const now = new Date();
       const projected = calculateProjection(dailyValues, totalUsage, 'SUM', now);
+      
+      // Generate all days of the month with actual and forecast values
+      const monthlyDays = generateMonthlyDays(dailyValues, totalUsage, projected, 'SUM', now);
+      
+      // Separate actual and forecast for backward compatibility
+      const dailyForecast = monthlyDays.filter(d => d.isForecast).map(d => ({ date: d.date, value: d.value }));
+      
+      // Get metadata
+      const daysElapsed = getDaysElapsedInMonth(now);
+      const daysRemaining = getDaysRemainingInMonth(now);
 
       const productFamiliesConfig = (config?.product_families as Record<string, any>) || {};
       const productFamilyConfig = productFamiliesConfig[productFamily] as
@@ -592,6 +621,11 @@ export async function GET(request: NextRequest) {
         threshold,
         projected,
         trend,
+        dailyValues,
+        dailyForecast,
+        monthlyDays: monthlyDays, // All days of month with isForecast flag
+        daysElapsed,
+        daysRemaining,
         status,
         category: getMetricCategory(metricKey),
       });
