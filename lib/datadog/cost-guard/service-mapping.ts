@@ -95,6 +95,7 @@ function extractContainers(data: any): number {
  */
 function extractDatabaseMonitoring(data: any): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'dbm_host_count' ||
     usageType === 'database_monitoring' ||
     usageType === 'dbm_hosts' ||
     usageType?.includes('database')
@@ -500,8 +501,8 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
   database_monitoring: {
     serviceKey: 'database_monitoring',
     serviceName: 'Database Monitoring',
-    productFamily: 'infra_hosts',
-    usageType: 'database_monitoring',
+    productFamily: 'dbm',
+    usageType: 'dbm_host_count',
     unit: 'hosts',
     category: 'infrastructure',
     apiEndpoint: '/api/v2/usage/hourly_usage',
@@ -694,6 +695,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'database_monitoring':
       return (usageType: string) =>
+        usageType === 'dbm_host_count' ||
         usageType === 'database_monitoring' ||
         usageType?.includes('database');
     
