@@ -465,7 +465,9 @@ export async function datadogRequestWithRetry<T>(
  * Based on Datadog OpenAPI v2 specification
  */
 const PRODUCT_FAMILY_MAP: Record<string, string> = {
-  logs: 'indexed_logs',
+  // Note: 'logs' is a valid v2 product_family (returns ingested_events_bytes)
+  // 'indexed_logs' is a separate v2 product_family (returns logs_indexed_events_7_day_count)
+  // Removed 'logs: indexed_logs' mapping to allow 'logs' to be used directly
   apm: 'indexed_spans',
   infra: 'infra_hosts',
   hosts: 'infra_hosts',
