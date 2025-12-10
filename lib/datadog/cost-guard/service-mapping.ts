@@ -3,6 +3,7 @@
  * Maps each service from Datadog quotes to API endpoints and usage extraction
  */
 
+import type { DatadogAPIResponse } from './types';
 import { calculateTotalUsage, bytesToGB, extractMaxUsage } from './calculations';
 import { debugApi } from '@/lib/debug';
 
@@ -14,14 +15,14 @@ export interface ServiceMapping {
   unit: string;
   category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
   apiEndpoint: string; // Endpoint da API
-  extractUsage: (apiResponse: any) => number; // Function to extract usage from API response
+  extractUsage: (apiResponse: DatadogAPIResponse) => number; // Function to extract usage from API response
 }
 
 /**
  * Extract usage for infrastructure hosts (Enterprise)
  * Uses MAXIMUM value across all hours (capacity metric)
  */
-function extractInfraHostEnterprise(data: any): number {
+function extractInfraHostEnterprise(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'infra_host_enterprise' ||
     usageType === 'infra_host_enterprise_usage' ||
@@ -72,7 +73,7 @@ function extractInfraHostEnterprise(data: any): number {
  * Extract usage for containers
  * Uses MAXIMUM value across all hours (capacity metric)
  */
-function extractContainers(data: any): number {
+function extractContainers(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'containers' ||
     usageType === 'container_usage' ||
@@ -95,7 +96,7 @@ function extractContainers(data: any): number {
  * Extract usage for database monitoring
  * Uses MAXIMUM value across all hours (capacity metric)
  */
-function extractDatabaseMonitoring(data: any): number {
+function extractDatabaseMonitoring(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'dbm_host_count' ||
     usageType === 'database_monitoring' ||
@@ -119,7 +120,7 @@ function extractDatabaseMonitoring(data: any): number {
  * Extract usage for serverless functions
  * Uses MAXIMUM value across all hours (capacity metric)
  */
-function extractServerlessFunctions(data: any): number {
+function extractServerlessFunctions(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'func_count' ||
     usageType === 'serverless_functions' ||
@@ -143,7 +144,7 @@ function extractServerlessFunctions(data: any): number {
  * Extract usage for APM Enterprise hosts
  * Uses MAXIMUM value across all hours (capacity metric)
  */
-function extractAPMEnterprise(data: any): number {
+function extractAPMEnterprise(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
     usageType === 'apm_host_count' ||
     usageType === 'apm_host_enterprise' ||
@@ -166,7 +167,7 @@ function extractAPMEnterprise(data: any): number {
 /**
  * Extract indexed spans (analyzed spans)
  */
-function extractIndexedSpans(data: any): number {
+function extractIndexedSpans(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -191,7 +192,7 @@ function extractIndexedSpans(data: any): number {
 /**
  * Extract ingested spans (in GB)
  */
-function extractIngestedSpans(data: any): number {
+function extractIngestedSpans(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -218,7 +219,7 @@ function extractIngestedSpans(data: any): number {
  * Extract log events (indexed logs in millions)
  * Uses SUM across all hours (volume metric)
  */
-function extractLogEvents(data: any): number {
+function extractLogEvents(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     let hoursProcessed = 0;
@@ -266,7 +267,7 @@ function extractLogEvents(data: any): number {
 /**
  * Extract log ingestion (in GB)
  */
-function extractLogIngestion(data: any): number {
+function extractLogIngestion(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -292,7 +293,7 @@ function extractLogIngestion(data: any): number {
 /**
  * Extract LLM observability requests
  */
-function extractLLMObservability(data: any): number {
+function extractLLMObservability(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -317,7 +318,7 @@ function extractLLMObservability(data: any): number {
 /**
  * Extract browser tests
  */
-function extractBrowserTests(data: any): number {
+function extractBrowserTests(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -342,7 +343,7 @@ function extractBrowserTests(data: any): number {
 /**
  * Extract API tests
  */
-function extractAPITests(data: any): number {
+function extractAPITests(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -368,7 +369,7 @@ function extractAPITests(data: any): number {
 /**
  * Extract RUM session replay
  */
-function extractRUMSessionReplay(data: any): number {
+function extractRUMSessionReplay(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -393,7 +394,7 @@ function extractRUMSessionReplay(data: any): number {
 /**
  * Extract RUM browser/mobile sessions
  */
-function extractRUMBrowserSessions(data: any): number {
+function extractRUMBrowserSessions(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -419,7 +420,7 @@ function extractRUMBrowserSessions(data: any): number {
 /**
  * Extract Cloud SIEM indexed events
  */
-function extractCloudSIEM(data: any): number {
+function extractCloudSIEM(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
     let total = 0;
     for (const hourlyUsage of data.data) {
@@ -446,7 +447,7 @@ function extractCloudSIEM(data: any): number {
  * Uses ci-app endpoint which returns ci_visibility_itr_committers, ci_visibility_pipeline_committers, and ci_visibility_test_committers
  * Returns the maximum value across all three committer types for the entire period (not summed, as Code Security charges per unique committer)
  */
-function extractCodeSecurity(data: any): number {
+function extractCodeSecurity(data: DatadogAPIResponse): number {
   // API v1 ci-app returns { usage: [{ ci_visibility_itr_committers: X, ci_visibility_pipeline_committers: Y, ci_visibility_test_committers: Z, ... }] }
   // Format: { usage: [{ hour: "...", ci_visibility_itr_committers: 5, ci_visibility_pipeline_committers: 7, ci_visibility_test_committers: 9, ... }] }
   if (data?.usage && Array.isArray(data.usage)) {

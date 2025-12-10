@@ -134,3 +134,78 @@ export interface CostGuardMetricsData {
   };
 }
 
+/**
+ * Types for Datadog API responses
+ */
+
+export interface DatadogMeasurement {
+  usage_type: string;
+  value: number;
+}
+
+export interface DatadogHourlyUsageAttributes {
+  timestamp: string;
+  measurements: DatadogMeasurement[];
+  product_family?: string;
+  org_name?: string;
+  public_id?: string;
+  account_name?: string;
+  account_public_id?: string;
+  region?: string;
+}
+
+export interface DatadogHourlyUsageData {
+  id?: string;
+  type?: string;
+  attributes: DatadogHourlyUsageAttributes;
+}
+
+export interface DatadogUsageResponseV2 {
+  data: DatadogHourlyUsageData[];
+  usage?: Array<{
+    account_id?: string;
+    org_name?: string;
+    product_family?: string;
+    public_id?: string;
+    region?: string;
+    timeseries?: Array<{
+      [timestamp: string]: number;
+    }>;
+  }>;
+  timeseries?: {
+    timestamps: string[];
+    values: number[];
+  };
+  errors?: Array<{
+    code: string;
+    message: string;
+  }>;
+  error?: string | Error;
+}
+
+export type TimeseriesData = 
+  | DatadogUsageResponseV2
+  | Array<{ [timestamp: string]: number }>
+  | { timestamps: string[]; values: number[] }
+  | null;
+
+/**
+ * Type for Datadog API response used in service extraction functions
+ */
+export type DatadogAPIResponse = DatadogUsageResponseV2 | DatadogUsageResponse;
+
+/**
+ * Daily value with date
+ */
+export interface DailyValue {
+  date: string;
+  value: number;
+}
+
+/**
+ * Monthly day with forecast flag
+ */
+export interface MonthlyDay extends DailyValue {
+  isForecast: boolean;
+}
+

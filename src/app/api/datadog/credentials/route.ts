@@ -10,24 +10,8 @@ import {
   storeCredentialInVault,
 } from '@/lib/datadog/vault';
 import { authOptions } from '@/lib/auth';
-import { checkTenantAccess } from '@/lib/tenant';
 import { supabaseAdmin } from '@/lib/supabase';
-
-const OWNER_ROLES = new Set(['owner', 'admin']);
-
-/**
- * Helper function to validate user is owner or admin
- */
-async function validateOwnerOrAdmin(tenant: string, userId: string) {
-  const { hasAccess, role } = await checkTenantAccess(tenant, userId);
-  if (!hasAccess || !OWNER_ROLES.has(role)) {
-    return {
-      authorized: false,
-      role: role || null,
-    };
-  }
-  return { authorized: true, role };
-}
+import { validateOwnerOrAdmin } from '@/lib/datadog/cost-guard/auth';
 
 /**
  * POST: Save/update Datadog credentials for an organization

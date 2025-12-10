@@ -21,27 +21,12 @@ import {
   extractTrendFromTimeseries,
   extractDailyAbsoluteValues,
   bytesToGB,
+  extractTimeseriesData,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping, getUsageTypeFilter, getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
 import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
-import { checkTenantAccess } from '@/lib/tenant';
-
-const OWNER_ROLES = new Set(['owner', 'admin']);
-
-/**
- * Helper function to validate user is owner or admin
- */
-async function validateOwnerOrAdmin(tenant: string, userId: string) {
-  const { hasAccess, role } = await checkTenantAccess(tenant, userId);
-  if (!hasAccess || !OWNER_ROLES.has(role)) {
-    return {
-      authorized: false,
-      role: role || null,
-    };
-  }
-  return { authorized: true, role };
-}
+import { validateOwnerOrAdmin } from '@/lib/datadog/cost-guard/auth';
 
 /**
  * GET: Retrieve summary data (contracted spend, projected spend, utilization, runway, overage risk)
@@ -221,14 +206,7 @@ export async function GET(request: NextRequest) {
           totalCurrentCost += serviceCost;
 
           // Extract timeseries for trend and projection
-          let timeseriesData: any = null;
-          if (usageData?.data && Array.isArray(usageData.data)) {
-            timeseriesData = usageData;
-          } else if (usageData?.usage && Array.isArray(usageData.usage) && usageData.usage.length > 0) {
-            timeseriesData = usageData.usage[0]?.timeseries || usageData.usage;
-          } else if (usageData?.timeseries) {
-            timeseriesData = usageData.timeseries;
-          }
+          const timeseriesData = extractTimeseriesData(usageData);
 
           // Get usage_type filter for this specific service to ensure trend only includes this service's data
           const usageTypeFilter = getUsageTypeFilter(service.service_key);
@@ -362,14 +340,7 @@ export async function GET(request: NextRequest) {
       totalCurrentUsage += usage;
 
       // Extract timeseries for trend
-      let timeseriesData: any = null;
-      if (data?.data && Array.isArray(data.data)) {
-        timeseriesData = data;
-      } else if (data?.usage && Array.isArray(data.usage) && data.usage.length > 0) {
-        timeseriesData = data.usage[0]?.timeseries || data.usage;
-      } else if (data?.timeseries) {
-        timeseriesData = data.timeseries;
-      }
+      const timeseriesData = extractTimeseriesData(data);
       
       const trend = extractTrendFromTimeseries(timeseriesData, 7);
       allTrends.push(...trend);

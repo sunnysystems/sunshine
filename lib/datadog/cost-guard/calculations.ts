@@ -2,7 +2,36 @@
  * Calculation helpers for Cost Guard metrics and projections
  */
 
-import type { MetricUsage } from './types';
+import type { MetricUsage, TimeseriesData, DatadogUsageResponseV2, DatadogUsageResponse } from './types';
+
+/**
+ * Extract timeseries data from various Datadog API response formats
+ * Centralizes the logic that was duplicated across multiple files
+ */
+export function extractTimeseriesData(
+  usageData: DatadogUsageResponseV2 | DatadogUsageResponse | null | undefined,
+): TimeseriesData | null {
+  if (!usageData) {
+    return null;
+  }
+
+  // Handle v2 API format: { data: [{ attributes: { timestamp, measurements: [...] } }] }
+  if (usageData.data && Array.isArray(usageData.data)) {
+    return usageData;
+  }
+
+  // Handle legacy format: { usage: [{ timeseries: [...] }] }
+  if (usageData.usage && Array.isArray(usageData.usage) && usageData.usage.length > 0) {
+    return (usageData.usage[0]?.timeseries as TimeseriesData) || (usageData.usage as TimeseriesData);
+  }
+
+  // Handle direct timeseries format
+  if (usageData.timeseries) {
+    return usageData.timeseries as TimeseriesData;
+  }
+
+  return null;
+}
 
 /**
  * Extract daily absolute values from Datadog usage timeseries
@@ -13,7 +42,7 @@ import type { MetricUsage } from './types';
  * @returns Array of daily values with their dates: [{ date: string, value: number }]
  */
 export function extractDailyAbsoluteValues(
-  timeseries: any,
+  timeseries: TimeseriesData | null,
   usageTypeFilter?: (usageType: string) => boolean,
   aggregationType: 'MAX' | 'SUM' = 'SUM',
 ): Array<{ date: string; value: number }> {
@@ -24,7 +53,7 @@ export function extractDailyAbsoluteValues(
   let dataPoints: Array<{ timestamp: string; value: number }> = [];
 
   // Handle v2 API format: { data: [{ attributes: { timestamp, measurements: [...] } }] }
-  if (timeseries.data && Array.isArray(timeseries.data)) {
+  if ('data' in timeseries && timeseries.data && Array.isArray(timeseries.data)) {
     for (const hourlyUsage of timeseries.data) {
       const timestamp = hourlyUsage.attributes?.timestamp;
       if (timestamp && hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
@@ -695,7 +724,7 @@ export function determineStatus(
  *                          If provided, only measurements matching the filter will be included
  */
 export function extractTrendFromTimeseries(
-  timeseries: any,
+  timeseries: TimeseriesData | null,
   days: number = 7,
   usageTypeFilter?: (usageType: string) => boolean,
 ): number[] {
@@ -815,7 +844,7 @@ export function extractTrendFromTimeseries(
  * Handles v2 API format (/api/v2/usage/hourly_usage) and legacy v1 formats
  */
 export function calculateTotalUsage(
-  usageResponse: any,
+  usageResponse: DatadogUsageResponseV2 | DatadogUsageResponse | null | undefined,
 ): number {
   if (!usageResponse) {
     return 0;
@@ -881,7 +910,7 @@ export function calculateTotalUsage(
  * @returns Maximum value found across all hours
  */
 export function extractMaxUsage(
-  data: any,
+  data: DatadogUsageResponseV2 | null | undefined,
   usageTypeFilter: (usageType: string) => boolean,
 ): number {
   if (!data?.data || !Array.isArray(data.data)) {

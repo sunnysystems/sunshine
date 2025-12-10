@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, formatNumberWithDecimals } from '@/lib/utils';
 
@@ -123,20 +123,26 @@ export function MetricUsageCard({
               // Use monthlyDays if available (preferred), otherwise fallback to dailyValues/dailyForecast or trend
               if (monthlyDays && monthlyDays.length > 0) {
                 
-                // Calculate max value for scaling
-                const maxValue = Math.max(
+                // Calculate max value for scaling (memoized)
+                const maxValue = useMemo(() => Math.max(
                   ...monthlyDays.map(d => d.value),
                   limit,
                   threshold || 0,
                   1 // Minimum to avoid division by zero
-                );
+                ), [monthlyDays, limit, threshold]);
 
-                const limitHeight = limit > 0 ? (limit / maxValue) * 100 : 0;
+                const limitHeight = useMemo(() => limit > 0 ? (limit / maxValue) * 100 : 0, [limit, maxValue]);
                 // Sempre calcular threshold: usar o valor fornecido ou 90% do limit como fallback
-                const effectiveThreshold = (threshold !== null && threshold !== undefined && threshold > 0) 
-                  ? threshold 
-                  : (limit > 0 ? limit * 0.9 : 0);
-                const thresholdHeight = effectiveThreshold > 0 ? (effectiveThreshold / maxValue) * 100 : 0;
+                const effectiveThreshold = useMemo(() => 
+                  (threshold !== null && threshold !== undefined && threshold > 0) 
+                    ? threshold 
+                    : (limit > 0 ? limit * 0.9 : 0),
+                  [threshold, limit]
+                );
+                const thresholdHeight = useMemo(() => 
+                  effectiveThreshold > 0 ? (effectiveThreshold / maxValue) * 100 : 0,
+                  [effectiveThreshold, maxValue]
+                );
 
                 return (
                   <>

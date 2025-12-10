@@ -549,7 +549,7 @@ export default function CostGuardMetricsPage() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {filteredMetrics.map((metric) => {
+        {filteredMetrics.map((metric, index) => {
           // Check if this is a service (has serviceName) or a legacy metric
           const isService = (metric as any).serviceName;
           const labelBase = isService ? null : metricLabels[metric.key];
@@ -574,9 +574,12 @@ export default function CostGuardMetricsPage() {
           // Check if there's an error (hasError or error field)
           const hasError = (metric as any).hasError === true || ((metric as any).error !== null && (metric as any).error !== undefined);
           
+          // Generate unique key: use serviceKey if available, otherwise use metric.key, fallback to index
+          const uniqueKey = (metric as any).serviceKey || metric.key || `metric_${index}`;
+          
           return (
             <MetricUsageCard
-              key={metric.key}
+              key={uniqueKey}
               name={name}
               unit={unit}
               usage={hasError ? 'N/A' : metric.usage}

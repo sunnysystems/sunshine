@@ -62,8 +62,8 @@ export function MetricUsageTable({ title, columns, rows }: MetricUsageTableProps
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
-            {rows.map((row) => (
-              <tr key={row.metric} className="group hover:bg-muted/40">
+            {rows.map((row, index) => (
+              <tr key={`${row.metric}-${index}`} className="group hover:bg-muted/40">
                 <td className="py-3 pr-3 font-medium text-foreground">{row.metric}</td>
                 <td className="py-3 pr-3 text-muted-foreground">{row.unit}</td>
                 <td className="py-3 pr-3 text-foreground">{row.usage}</td>
