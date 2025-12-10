@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
-import { usePathname } from 'next/navigation';
+import { useParams } from 'next/navigation';
 
 import { MetricUsageCard } from '@/components/datadog/cost-guard/MetricUsageCard';
 import { MetricUsageTable, type MetricTableRow } from '@/components/datadog/cost-guard/MetricUsageTable';
@@ -52,7 +52,7 @@ interface MetricConfig {
 
 export default function CostGuardMetricsPage() {
   const { t } = useTranslation();
-  const pathname = usePathname();
+  const params = useParams();
   const [activeCategory, setActiveCategory] = useState<MetricCategory>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,11 +75,10 @@ export default function CostGuardMetricsPage() {
   const progressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isPollingRef = useRef(false);
 
-  // Extract tenant from pathname
+  // Extract tenant from params (more reliable than pathname parsing)
   const tenant = useMemo(() => {
-    const segments = pathname?.split('/') ?? [];
-    return segments[1] || '';
-  }, [pathname]);
+    return (params?.tenant as string) || '';
+  }, [params]);
 
   const categoryFilters: { id: MetricCategory; label: string }[] = useMemo(
     () =>

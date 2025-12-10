@@ -168,8 +168,15 @@ export async function POST(request: NextRequest) {
     // Get organization_id from tenant slug
     const organizationId = await getOrganizationIdFromTenant(tenant);
     if (!organizationId) {
+      console.error('[Cost Guard Contract POST] Organization not found', {
+        tenant,
+        userId: session.user.id,
+      });
       return NextResponse.json(
-        { message: 'Organization not found' },
+        { 
+          message: 'Organization not found',
+          tenant: tenant,
+        },
         { status: 404 },
       );
     }

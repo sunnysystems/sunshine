@@ -64,8 +64,15 @@ export async function GET(request: NextRequest) {
     // Get organization_id from tenant slug
     const organizationId = await getOrganizationIdFromTenant(tenant);
     if (!organizationId) {
+      console.error('[Cost Guard Summary] Organization not found', {
+        tenant,
+        userId: session.user.id,
+      });
       return NextResponse.json(
-        { message: 'Organization not found' },
+        { 
+          message: 'Organization not found',
+          tenant: tenant,
+        },
         { status: 404 },
       );
     }

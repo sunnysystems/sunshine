@@ -93,13 +93,31 @@ export async function getDatadogCredentials(
 export async function getOrganizationIdFromTenant(
   tenant: string,
 ): Promise<string | null> {
+  if (!tenant || tenant.trim() === '') {
+    console.error('[getOrganizationIdFromTenant] Empty tenant provided');
+    return null;
+  }
+
   const { data: org, error } = await supabaseAdmin
     .from('organizations')
     .select('id')
     .eq('slug', tenant)
     .single();
 
-  if (error || !org) {
+  if (error) {
+    // Log error details for debugging (but don't expose sensitive info)
+    console.error('[getOrganizationIdFromTenant] Database error', {
+      tenant,
+      errorCode: error.code,
+      errorMessage: error.message,
+    });
+    return null;
+  }
+
+  if (!org) {
+    console.error('[getOrganizationIdFromTenant] Organization not found', {
+      tenant,
+    });
     return null;
   }
 
