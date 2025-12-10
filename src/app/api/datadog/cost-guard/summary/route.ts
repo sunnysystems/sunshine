@@ -78,17 +78,46 @@ export async function GET(request: NextRequest) {
     }
 
     // Get contract configuration
-    const { data: config } = await supabaseAdmin
+    const { data: config, error: configError } = await supabaseAdmin
       .from('datadog_cost_guard_config')
       .select('*')
       .eq('organization_id', organizationId)
       .single();
 
+    // If no contract exists, return error
+    if (configError && configError.code === 'PGRST116') {
+      // PGRST116 = not found
+      return NextResponse.json(
+        {
+          message: 'Contract configuration is required before viewing summary',
+          contractRequired: true,
+        },
+        { status: 400 },
+      );
+    }
+
+    if (configError) {
+      return NextResponse.json(
+        { message: 'Failed to fetch contract configuration' },
+        { status: 500 },
+      );
+    }
+
+    if (!config) {
+      return NextResponse.json(
+        {
+          message: 'Contract configuration is required before viewing summary',
+          contractRequired: true,
+        },
+        { status: 400 },
+      );
+    }
+
     // Get individual services from the contract
     const { data: services } = await supabaseAdmin
       .from('datadog_cost_guard_services')
       .select('*')
-      .eq('config_id', config?.id || '')
+      .eq('config_id', config.id)
       .order('service_name');
 
     // Calculate contracted spend from services (using list prices) or fallback to config

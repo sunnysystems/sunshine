@@ -275,19 +275,44 @@ export async function POST(request: NextRequest) {
         .delete()
         .eq('config_id', config.id);
 
-      // Insert new services
-      const servicesToInsert = configData.services.map((service: any) => ({
-        config_id: config.id,
-        service_name: service.serviceName,
-        service_key: service.serviceKey,
-        product_family: service.productFamily,
-        usage_type: service.usageType || null,
-        quantity: service.quantity || 0,
-        list_price: service.listPrice || 0,
-        unit: service.unit,
-        committed_value: service.committedValue || (service.quantity || 0) * (service.listPrice || 0),
-        threshold: service.threshold !== null && service.threshold !== undefined ? service.threshold : null,
-      }));
+      // Group services by service_key to handle duplicates
+      // If there are duplicates, we'll keep the first one and log a warning
+      const servicesByKey = new Map<string, any>();
+      const duplicates: string[] = [];
+
+      for (const service of configData.services) {
+        const key = service.serviceKey;
+        if (servicesByKey.has(key)) {
+          duplicates.push(key);
+          // eslint-disable-next-line no-console
+          console.warn(`Duplicate service key detected: ${key} - keeping first occurrence`, {
+            serviceName: service.serviceName,
+            existingServiceName: servicesByKey.get(key).service_name,
+          });
+          continue; // Skip duplicate
+        }
+        
+        servicesByKey.set(key, {
+          config_id: config.id,
+          service_name: service.serviceName,
+          service_key: service.serviceKey,
+          product_family: service.productFamily,
+          usage_type: service.usageType || null,
+          quantity: service.quantity || 0,
+          list_price: service.listPrice || 0,
+          unit: service.unit,
+          committed_value: service.committedValue || (service.quantity || 0) * (service.listPrice || 0),
+          threshold: service.threshold !== null && service.threshold !== undefined ? service.threshold : null,
+        });
+      }
+
+      if (duplicates.length > 0) {
+        // eslint-disable-next-line no-console
+        console.warn(`Found ${duplicates.length} duplicate service keys, they were skipped:`, duplicates);
+      }
+
+      // Insert unique services
+      const servicesToInsert = Array.from(servicesByKey.values());
 
       const { error: servicesError } = await supabaseAdmin
         .from('datadog_cost_guard_services')

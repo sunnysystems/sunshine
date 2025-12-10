@@ -93,6 +93,31 @@ function extractContainers(data: DatadogAPIResponse): number {
 }
 
 /**
+ * Extract usage for Cloud Network Monitoring
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * Cloud Network Monitoring is billed per host
+ */
+function extractCloudNetworkMonitoring(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'network_hosts' ||
+    usageType === 'network_monitoring' ||
+    usageType === 'network_flows' ||
+    (usageType?.includes('network') && !usageType?.includes('device'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Cloud Network Monitoring (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
+}
+
+/**
  * Extract usage for database monitoring
  * Uses MAXIMUM value across all hours (capacity metric)
  */
@@ -106,6 +131,79 @@ function extractDatabaseMonitoring(data: DatadogAPIResponse): number {
   
   if (maxValue > 0) {
     debugApi('Extracted Database Monitoring (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
+}
+
+/**
+ * Extract usage for CSM Pro Host
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * Cloud Security Management Pro Hosts
+ */
+function extractCSMProHost(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'csm_host_enterprise' ||
+    usageType === 'csm_host_pro' ||
+    usageType === 'csm_pro_host' ||
+    (usageType?.includes('csm') && usageType?.includes('host'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted CSM Pro Host (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
+}
+
+/**
+ * Extract usage for Fargate Tasks (Infra)
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * Fargate tasks are serverless containers on AWS
+ */
+function extractFargateTasksInfra(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'fargate_tasks' ||
+    usageType === 'fargate_tasks_infra' ||
+    (usageType?.includes('fargate') && !usageType?.includes('apm'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Fargate Tasks (Infra) (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
+}
+
+/**
+ * Extract usage for Fargate Tasks (APM)
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * Fargate tasks with APM enabled
+ */
+function extractFargateTasksAPM(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'fargate_tasks_apm' ||
+    usageType === 'fargate_apm_tasks' ||
+    (usageType?.includes('fargate') && usageType?.includes('apm'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Fargate Tasks (APM) (max)', {
       maxValue,
       hoursProcessed: data?.data?.length || 0,
       timestamp: new Date().toISOString(),
@@ -216,7 +314,7 @@ function extractIngestedSpans(data: DatadogAPIResponse): number {
 }
 
 /**
- * Extract log events (indexed logs in millions)
+ * Extract log events (indexed logs in millions) - Generic function for 7-day default
  * Uses SUM across all hours (volume metric)
  */
 function extractLogEvents(data: DatadogAPIResponse): number {
@@ -232,7 +330,8 @@ function extractLogEvents(data: DatadogAPIResponse): number {
           if (
             measurement.usage_type === 'indexed_logs' ||
             measurement.usage_type === 'log_events' ||
-            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log'))
+            measurement.usage_type === 'logs_indexed_events_7_day_count' ||
+            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log') && !measurement.usage_type?.includes('3_day') && !measurement.usage_type?.includes('15_day') && !measurement.usage_type?.includes('30_day'))
           ) {
             total += measurement.value || 0;
             usageTypesFound.add(measurement.usage_type);
@@ -257,6 +356,123 @@ function extractLogEvents(data: DatadogAPIResponse): number {
       hoursProcessed,
       usageTypesFound: Array.from(usageTypesFound),
       sampleMeasurements,
+      timestamp: new Date().toISOString(),
+    });
+    return result;
+  }
+  return calculateTotalUsage(data) / 1000000;
+}
+
+/**
+ * Extract log events (3 day retention period) in millions
+ * Uses SUM across all hours (volume metric)
+ */
+function extractLogEvents3Day(data: DatadogAPIResponse): number {
+  if (data?.data && Array.isArray(data.data)) {
+    let total = 0;
+    let hoursProcessed = 0;
+    const usageTypesFound = new Set<string>();
+    
+    for (const hourlyUsage of data.data) {
+      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          if (
+            measurement.usage_type === 'logs_indexed_events_3_day_count' ||
+            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log') && measurement.usage_type?.includes('3_day'))
+          ) {
+            total += measurement.value || 0;
+            usageTypesFound.add(measurement.usage_type);
+          }
+        }
+        hoursProcessed++;
+      }
+    }
+    
+    const result = total / 1000000; // Convert to millions
+    
+    debugApi('Extracted Log Events 3 Day (sum)', {
+      totalRaw: total,
+      resultInMillions: result,
+      hoursProcessed,
+      usageTypesFound: Array.from(usageTypesFound),
+      timestamp: new Date().toISOString(),
+    });
+    return result;
+  }
+  return calculateTotalUsage(data) / 1000000;
+}
+
+/**
+ * Extract log events (15 day retention period) in millions
+ * Uses SUM across all hours (volume metric)
+ */
+function extractLogEvents15Day(data: DatadogAPIResponse): number {
+  if (data?.data && Array.isArray(data.data)) {
+    let total = 0;
+    let hoursProcessed = 0;
+    const usageTypesFound = new Set<string>();
+    
+    for (const hourlyUsage of data.data) {
+      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          if (
+            measurement.usage_type === 'logs_indexed_events_15_day_count' ||
+            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log') && measurement.usage_type?.includes('15_day'))
+          ) {
+            total += measurement.value || 0;
+            usageTypesFound.add(measurement.usage_type);
+          }
+        }
+        hoursProcessed++;
+      }
+    }
+    
+    const result = total / 1000000; // Convert to millions
+    
+    debugApi('Extracted Log Events 15 Day (sum)', {
+      totalRaw: total,
+      resultInMillions: result,
+      hoursProcessed,
+      usageTypesFound: Array.from(usageTypesFound),
+      timestamp: new Date().toISOString(),
+    });
+    return result;
+  }
+  return calculateTotalUsage(data) / 1000000;
+}
+
+/**
+ * Extract log events (30 day retention period) in millions
+ * Uses SUM across all hours (volume metric)
+ */
+function extractLogEvents30Day(data: DatadogAPIResponse): number {
+  if (data?.data && Array.isArray(data.data)) {
+    let total = 0;
+    let hoursProcessed = 0;
+    const usageTypesFound = new Set<string>();
+    
+    for (const hourlyUsage of data.data) {
+      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          if (
+            measurement.usage_type === 'logs_indexed_events_30_day_count' ||
+            (measurement.usage_type?.includes('indexed') && measurement.usage_type?.includes('log') && measurement.usage_type?.includes('30_day'))
+          ) {
+            total += measurement.value || 0;
+            usageTypesFound.add(measurement.usage_type);
+          }
+        }
+        hoursProcessed++;
+      }
+    }
+    
+    const result = total / 1000000; // Convert to millions
+    
+    debugApi('Extracted Log Events 30 Day (sum)', {
+      totalRaw: total,
+      resultInMillions: result,
+      hoursProcessed,
+      usageTypesFound: Array.from(usageTypesFound),
       timestamp: new Date().toISOString(),
     });
     return result;
@@ -418,7 +634,8 @@ function extractRUMBrowserSessions(data: DatadogAPIResponse): number {
 }
 
 /**
- * Extract Cloud SIEM indexed events
+ * Extract Cloud SIEM indexed events (in millions)
+ * Used for cloud_siem_indexed service
  */
 function extractCloudSIEM(data: DatadogAPIResponse): number {
   if (data?.data && Array.isArray(data.data)) {
@@ -440,6 +657,85 @@ function extractCloudSIEM(data: DatadogAPIResponse): number {
     return total / 1000000;
   }
   return calculateTotalUsage(data) / 1000000;
+}
+
+/**
+ * Extract Cloud SIEM data (in GB)
+ * Used for cloud_siem service - same API data but converted to GB instead of millions
+ * Note: The API returns indexed events, but the PDF shows GB, so we treat the raw values as bytes
+ */
+function extractCloudSIEMGB(data: DatadogAPIResponse): number {
+  if (data?.data && Array.isArray(data.data)) {
+    let total = 0;
+    for (const hourlyUsage of data.data) {
+      if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+        for (const measurement of hourlyUsage.attributes.measurements) {
+          if (
+            measurement.usage_type === 'siem_indexed' ||
+            measurement.usage_type === 'cloud_siem' ||
+            measurement.usage_type?.includes('siem')
+          ) {
+            total += measurement.value || 0;
+          }
+        }
+      }
+    }
+    // Convert bytes to GB (PDF shows GB, so we treat API values as bytes)
+    return bytesToGB(total);
+  }
+  return bytesToGB(calculateTotalUsage(data));
+}
+
+/**
+ * Extract usage for App and API Protection
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * App and API Protection is billed per Host
+ */
+function extractAppAndAPIProtection(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'app_and_api_protection' ||
+    usageType === 'application_security' ||
+    usageType === 'app_protection' ||
+    usageType === 'api_protection' ||
+    (usageType?.includes('application') && usageType?.includes('security')) ||
+    (usageType?.includes('app') && usageType?.includes('protection'))
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted App and API Protection (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
+}
+
+/**
+ * Extract usage for Incident Management
+ * Uses MAXIMUM value across all hours (capacity metric)
+ * Incident Management is billed per Seat (user)
+ */
+function extractIncidentManagement(data: DatadogAPIResponse): number {
+  const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'incident_management' ||
+    usageType === 'incident_management_seats' ||
+    usageType === 'incident_response' ||
+    usageType?.includes('incident')
+  );
+  
+  if (maxValue > 0) {
+    debugApi('Extracted Incident Management (max)', {
+      maxValue,
+      hoursProcessed: data?.data?.length || 0,
+      timestamp: new Date().toISOString(),
+    });
+    return maxValue;
+  }
+  
+  return 0;
 }
 
 /**
@@ -494,6 +790,16 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     apiEndpoint: '/api/v2/usage/hourly_usage',
     extractUsage: extractInfraHostEnterprise,
   },
+  infra_host_pro_plus: {
+    serviceKey: 'infra_host_pro_plus',
+    serviceName: 'Infra Host (Pro Plus)',
+    productFamily: 'infra_hosts',
+    usageType: 'infra_host_enterprise', // Same usage type as Enterprise
+    unit: 'hosts',
+    category: 'infrastructure',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractInfraHostEnterprise, // Same extraction method as Enterprise
+  },
   containers: {
     serviceKey: 'containers',
     serviceName: 'Containers',
@@ -503,6 +809,36 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     category: 'infrastructure',
     apiEndpoint: '/api/v2/usage/hourly_usage',
     extractUsage: extractContainers,
+  },
+  fargate_tasks_infra: {
+    serviceKey: 'fargate_tasks_infra',
+    serviceName: 'Fargate Tasks (Infra)',
+    productFamily: 'infra_hosts',
+    usageType: 'fargate_tasks',
+    unit: 'tasks',
+    category: 'infrastructure',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractFargateTasksInfra,
+  },
+  fargate_tasks_apm: {
+    serviceKey: 'fargate_tasks_apm',
+    serviceName: 'Fargate Tasks (APM)',
+    productFamily: 'indexed_spans',
+    usageType: 'fargate_tasks_apm',
+    unit: 'tasks',
+    category: 'apm',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractFargateTasksAPM,
+  },
+  cloud_network_monitoring: {
+    serviceKey: 'cloud_network_monitoring',
+    serviceName: 'Cloud Network Monitoring',
+    productFamily: 'network_hosts',
+    usageType: 'network_hosts',
+    unit: 'hosts',
+    category: 'infrastructure',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractCloudNetworkMonitoring,
   },
   database_monitoring: {
     serviceKey: 'database_monitoring',
@@ -566,15 +902,45 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     extractUsage: extractIngestedSpans,
   },
   // Logs
-  log_events: {
-    serviceKey: 'log_events',
+  log_events_3day: {
+    serviceKey: 'log_events_3day',
+    serviceName: 'Log Events (3 Day Retention Period)',
+    productFamily: 'indexed_logs',
+    usageType: 'logs_indexed_events_3_day_count',
+    unit: 'M',
+    category: 'logs',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractLogEvents3Day,
+  },
+  log_events_7day: {
+    serviceKey: 'log_events_7day',
     serviceName: 'Log Events (7 Day Retention Period)',
     productFamily: 'indexed_logs',
-    usageType: 'indexed_logs',
+    usageType: 'logs_indexed_events_7_day_count',
     unit: 'M',
     category: 'logs',
     apiEndpoint: '/api/v2/usage/hourly_usage',
     extractUsage: extractLogEvents,
+  },
+  log_events_15day: {
+    serviceKey: 'log_events_15day',
+    serviceName: 'Log Events (15 Day Retention Period)',
+    productFamily: 'indexed_logs',
+    usageType: 'logs_indexed_events_15_day_count',
+    unit: 'M',
+    category: 'logs',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractLogEvents15Day,
+  },
+  log_events_30day: {
+    serviceKey: 'log_events_30day',
+    serviceName: 'Log Events (30 Day Retention Period)',
+    productFamily: 'indexed_logs',
+    usageType: 'logs_indexed_events_30_day_count',
+    unit: 'M',
+    category: 'logs',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractLogEvents30Day,
   },
   log_ingestion: {
     serviceKey: 'log_ingestion',
@@ -638,6 +1004,16 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     extractUsage: extractRUMBrowserSessions,
   },
   // Security & Compliance
+  cloud_siem: {
+    serviceKey: 'cloud_siem',
+    serviceName: 'Cloud SIEM',
+    productFamily: 'cloud_siem', // Corrected from 'siem' to 'cloud_siem' per Datadog API v2 docs
+    usageType: 'siem_indexed',
+    unit: 'GB',
+    category: 'security',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractCloudSIEMGB,
+  },
   cloud_siem_indexed: {
     serviceKey: 'cloud_siem_indexed',
     serviceName: 'Cloud SIEM Indexed (15 months)',
@@ -657,6 +1033,36 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     category: 'security',
     apiEndpoint: '/api/v2/usage/hourly_usage',
     extractUsage: extractCodeSecurity,
+  },
+  csm_pro_host: {
+    serviceKey: 'csm_pro_host',
+    serviceName: 'CSM Pro Host',
+    productFamily: 'csm_host_enterprise',
+    usageType: 'csm_host_enterprise',
+    unit: 'hosts',
+    category: 'security',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractCSMProHost,
+  },
+  incident_management: {
+    serviceKey: 'incident_management',
+    serviceName: 'Incident Management',
+    productFamily: 'incident_management',
+    usageType: 'incident_management',
+    unit: 'Seat',
+    category: 'observability',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractIncidentManagement,
+  },
+  app_and_api_protection: {
+    serviceKey: 'app_and_api_protection',
+    serviceName: 'App and API Protection',
+    productFamily: 'application_security',
+    usageType: 'app_and_api_protection',
+    unit: 'hosts',
+    category: 'security',
+    apiEndpoint: '/api/v2/usage/hourly_usage',
+    extractUsage: extractAppAndAPIProtection,
   },
 };
 
@@ -690,11 +1096,18 @@ export function getAggregationType(serviceKey: string): 'MAX' | 'SUM' {
   // Services that use extractMaxUsage (capacity metrics)
   const maxServices = new Set([
     'infra_host_enterprise',
+    'infra_host_pro_plus',
     'containers',
+    'fargate_tasks_infra',
+    'fargate_tasks_apm',
+    'cloud_network_monitoring',
     'database_monitoring',
     'serverless_workload_monitoring',
     'apm_enterprise',
     'code_security_bundle',
+    'csm_pro_host',
+    'incident_management',
+    'app_and_api_protection',
   ]);
 
   return maxServices.has(serviceKey) ? 'MAX' : 'SUM';
@@ -708,6 +1121,8 @@ export function getAggregationType(serviceKey: string): 'MAX' | 'SUM' {
 export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => boolean) | undefined {
   switch (serviceKey) {
     case 'infra_host_enterprise':
+    case 'infra_host_pro_plus':
+      // Both use the same extraction method
       return (usageType: string) =>
         usageType === 'infra_host_enterprise' ||
         usageType === 'infra_host_enterprise_usage' ||
@@ -722,7 +1137,26 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     case 'containers':
       return (usageType: string) =>
         usageType === 'containers' ||
-        usageType?.includes('container');
+        (usageType?.includes('container') && !usageType?.includes('fargate'));
+    
+    case 'fargate_tasks_infra':
+      return (usageType: string) =>
+        usageType === 'fargate_tasks' ||
+        usageType === 'fargate_tasks_infra' ||
+        (usageType?.includes('fargate') && !usageType?.includes('apm'));
+    
+    case 'fargate_tasks_apm':
+      return (usageType: string) =>
+        usageType === 'fargate_tasks_apm' ||
+        usageType === 'fargate_apm_tasks' ||
+        (usageType?.includes('fargate') && usageType?.includes('apm'));
+    
+    case 'cloud_network_monitoring':
+      return (usageType: string) =>
+        usageType === 'network_hosts' ||
+        usageType === 'network_monitoring' ||
+        usageType === 'network_flows' ||
+        (usageType?.includes('network') && !usageType?.includes('device'));
     
     case 'database_monitoring':
       return (usageType: string) =>
@@ -761,11 +1195,27 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
         usageType === 'span_ingestion' ||
         (usageType?.includes('ingested') && usageType?.includes('span'));
     
-    case 'log_events':
+    case 'log_events_3day':
+      return (usageType: string) =>
+        usageType === 'logs_indexed_events_3_day_count' ||
+        (usageType?.includes('indexed') && usageType?.includes('log') && usageType?.includes('3_day'));
+    
+    case 'log_events_7day':
       return (usageType: string) =>
         usageType === 'indexed_logs' ||
         usageType === 'log_events' ||
-        (usageType?.includes('indexed') && usageType?.includes('log'));
+        usageType === 'logs_indexed_events_7_day_count' ||
+        (usageType?.includes('indexed') && usageType?.includes('log') && !usageType?.includes('3_day') && !usageType?.includes('15_day') && !usageType?.includes('30_day'));
+    
+    case 'log_events_15day':
+      return (usageType: string) =>
+        usageType === 'logs_indexed_events_15_day_count' ||
+        (usageType?.includes('indexed') && usageType?.includes('log') && usageType?.includes('15_day'));
+    
+    case 'log_events_30day':
+      return (usageType: string) =>
+        usageType === 'logs_indexed_events_30_day_count' ||
+        (usageType?.includes('indexed') && usageType?.includes('log') && usageType?.includes('30_day'));
     
     case 'log_ingestion':
       return (usageType: string) =>
@@ -806,6 +1256,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
         usageType === 'mobile_sessions' ||
         (usageType?.includes('rum') && !usageType?.includes('replay'));
     
+    case 'cloud_siem':
     case 'cloud_siem_indexed':
       return (usageType: string) =>
         usageType === 'siem_indexed' ||
@@ -816,6 +1267,29 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
       return (usageType: string) =>
         usageType?.includes('code_security') ||
         usageType?.includes('committer');
+    
+    case 'csm_pro_host':
+      return (usageType: string) =>
+        usageType === 'csm_host_enterprise' ||
+        usageType === 'csm_host_pro' ||
+        usageType === 'csm_pro_host' ||
+        (usageType?.includes('csm') && usageType?.includes('host'));
+    
+    case 'incident_management':
+      return (usageType: string) =>
+        usageType === 'incident_management' ||
+        usageType === 'incident_management_seats' ||
+        usageType === 'incident_response' ||
+        usageType?.includes('incident');
+    
+    case 'app_and_api_protection':
+      return (usageType: string) =>
+        usageType === 'app_and_api_protection' ||
+        usageType === 'application_security' ||
+        usageType === 'app_protection' ||
+        usageType === 'api_protection' ||
+        (usageType?.includes('application') && usageType?.includes('security')) ||
+        (usageType?.includes('app') && usageType?.includes('protection'));
     
     default:
       // For services without specific filters, return undefined (will use all measurements)

@@ -178,32 +178,97 @@ function parseDatadogQuotePDF(text: string): any {
       // Handle multi-line entries: if current line doesn't have USD prices, try to merge with next line(s)
       // This handles cases like "Indexed Spans (15 Day Retention Period)" on one line and "80 M Analyzed" on next
       // Or "Indexed Spans (15 Day Retention Period) 80 M Analyzed" on one line and "USD 2.04 per M..." on next
-      // Continue merging until we find USD prices or reach 3 lines total
+      // Or "Containers2,000" followed by "USD 1.00 per Container USD 1.00 per Container USD 24,000.00"
+      // Continue merging until we find at least 2 USD prices (list and sales) or reach 5 lines total
       let mergeCount = 0;
-      const maxMerges = 2; // Can merge up to 2 additional lines (total 3 lines)
+      const maxMerges = 4; // Can merge up to 4 additional lines (total 5 lines) to handle complex multi-line entries
       const originalLineIndex = i;
       
-      while (!line.match(/USD\s*[\d.]+/i) && mergeCount < maxMerges && i + 1 < lines.length) {
+      // Check if current line looks like a service name with quantity but no prices
+      // Patterns: "Containers2,000", "Serverless Workload Monitoring (Functions)270", "Serverless Functions APM110 M", "Fargate Tasks (Infra)8", etc.
+      const hasServiceNameWithQuantity = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*$/i);
+      const hasServiceNameNeedingMerge = line.match(/(Indexed\s+Spans|LLM\s+Observability|Containers|Serverless\s+Workload\s+Monitoring|Serverless\s+Functions|RUM|Fargate\s+Tasks)/i);
+      
+      while (mergeCount < maxMerges && i + 1 < lines.length) {
         const nextLine = lines[i + 1]?.trim() || '';
+        
+        // Count USD prices in current merged line
+        const currentUSDCount = (line.match(/USD\s*[\d.]+/gi) || []).length;
+        
+        // Check if current line is already complete (has service name + quantity + 2+ USD prices)
+        // Pattern: ServiceName + Quantity + USD + Price + ... + USD + Price
+        // We check if line starts with a service name pattern and has 2+ USD prices
+        const currentLineIsComplete = currentUSDCount >= 2 && (
+          line.match(/^[A-Za-z][^0-9]*?\d+(?:,\d+)*(?:\s*[MK])?\s+USD/i) || // Service + Qty + USD
+          line.match(/USD\s*[\d.]+.*USD\s*[\d.]+/i) // Has 2 USD prices anywhere
+        );
+        
+        // Check if next line starts with a new service (service name followed by quantity, no USD yet)
+        // Also check for Fargate Tasks pattern: "Fargate Tasks (Infra)8" or "Fargate Tasks (APM)5"
+        const nextLineStartsWithNewService = nextLine.match(/^[A-Za-z][^0-9]*?\d+(?:,\d+)*(?:\s*[MK])?\s*$/i) ||
+          nextLine.match(/^Fargate\s+Tasks\s*\([^)]+\)\d+/i);
+        
+        // Don't merge if current line is complete and next line is a new service entry
+        if (currentLineIsComplete && nextLineStartsWithNewService) {
+          break;
+        }
+        
+        // Don't merge if next line is clearly a new service entry (has service name pattern and USD prices)
+        // This prevents merging "M Invocations USD 13,329.36" with "Fargate Tasks (Infra)8USD 1.20..."
+        // Check for common service name patterns at the start of the line
+        const nextLineIsNewServiceWithPrices = nextLine.match(/^(Fargate\s+Tasks|Containers|Serverless\s+Workload\s+Monitoring|Serverless\s+Functions\s+APM|APM\s+Host|Ingested\s+Spans|Log\s+Events|Log\s+Ingestion|Browser\s+Tests|API\s+Tests|Cloud\s+Network\s+Monitoring|RUM\s+Browser|Cloud\s+SIEM|CSM\s+Pro\s+Host|Incident\s+Management|App\s+and\s+API\s+Protection)/i) && 
+          nextLine.match(/USD/i);
+        if (nextLineIsNewServiceWithPrices) {
+          break;
+        }
+        
+        // Also check if current line is just a fragment (like "M Invocations USD 13,329.36")
+        // and next line is a complete service entry - don't merge in this case
+        // Fragments typically:
+        // - Don't start with a service name + quantity pattern
+        // - Are continuation lines like "M Invocations", "per Function", "1K Sessions", etc.
+        // - Or end with just a USD amount (like "USD 13,329.36")
+        const currentLineIsFragment = !line.match(/^[A-Za-z][^0-9]*?\d+(?:,\d+)*(?:\s*[MK])?\s*USD/i) && 
+          (line.match(/^(M\s+Invocations|per\s+Function|per\s+Container|1K\s+Sessions)/i) || 
+           (line.match(/USD\s*[\d,]+\.\d+$/) && !line.match(/^[A-Za-z]/))); // Ends with USD amount but doesn't start with service name
+        if (currentLineIsFragment && nextLineIsNewServiceWithPrices) {
+          break;
+        }
+        
+        // Additional check: if current line ends with a USD total (like "USD 13,329.36") 
+        // and next line starts with a service name, don't merge
+        // This handles cases where a service entry ends with just the total amount on a separate line
+        const currentLineEndsWithTotal = line.match(/USD\s*[\d,]+\.\d+$/i) && 
+          !line.match(/^[A-Za-z][^0-9]*?\d+(?:,\d+)*(?:\s*[MK])?\s*USD/i); // Has USD total but not a complete service entry
+        const nextLineStartsWithServiceName = nextLine.match(/^(Fargate\s+Tasks|Containers|Serverless|APM\s+Host|Ingested\s+Spans|Log\s+Events|Log\s+Ingestion|Browser\s+Tests|API\s+Tests|Cloud\s+Network\s+Monitoring|RUM|Cloud\s+SIEM|CSM|Incident\s+Management|App\s+and\s+API)/i);
+        if (currentLineEndsWithTotal && nextLineStartsWithServiceName) {
+          break;
+        }
         
         // Check if we should merge:
         // - Next line has USD prices (always merge - this is the most important case)
-        // - Next line starts with a number (quantity)
+        // - Current line has service name with quantity but less than 2 USD prices (need list and sales price)
+        // - Next line starts with "per" (unit description like "per Container", "per Function")
+        // - Next line starts with a number (quantity continuation)
         // - Current line ends with quantity pattern (like "80 M Analyzed" or "100 K")
-        // - Current line contains service name patterns that typically need merge (Indexed Spans, LLM Observability)
+        // - Current line contains service name patterns that typically need merge
         // - Next line is not empty and looks like continuation (not a header or total)
-        const hasServiceNameNeedingMerge = line.match(/(Indexed\s+Spans|LLM\s+Observability)/i);
-        const nextLineStartsWithServiceWord = nextLine.match(/^(Spans|Requests|Sessions|Invocations)/i);
+        const nextLineStartsWithServiceWord = nextLine.match(/^(Spans|Requests|Sessions|Invocations|per)/i);
         const currentLineEndsWithQuantity = line.match(/\d+\s*[MK]\s*[A-Za-z]+$/i);
+        const nextLineHasPerUnit = nextLine.match(/^per\s+/i);
+        const nextLineHasUSD = nextLine.match(/USD/i);
         
-        // For services that need merge, be more aggressive - continue until we find USD
+        // For services that need merge, be more aggressive - continue until we find at least 2 USD prices
+        // But don't merge if current line is already complete
         const shouldMerge = 
-          nextLine.match(/USD/i) ||
-          nextLine.match(/^\d+/) ||
-          currentLineEndsWithQuantity ||
-          (hasServiceNameNeedingMerge && nextLine.length > 0 && !nextLine.match(/^(SUBTOTAL|ADDITIONAL|ADJUSTMENT|Page \d+|SERVICE|QUANTITY|PRICE|Audit)/i)) ||
-          (nextLineStartsWithServiceWord && hasServiceNameNeedingMerge) ||
-          (nextLine.length > 0 && !nextLine.match(/^(SUBTOTAL|ADDITIONAL|ADJUSTMENT|Page \d+|SERVICE|QUANTITY|PRICE|Audit)/i));
+          (nextLineHasUSD && !currentLineIsComplete) || // Merge if next has USD and current isn't complete
+          (hasServiceNameWithQuantity && currentUSDCount < 2) ||
+          (hasServiceNameNeedingMerge && currentUSDCount < 2 && nextLine.length > 0 && !nextLineStartsWithNewService) ||
+          (nextLineHasPerUnit && !currentLineIsComplete && !nextLineStartsWithNewService) || // Only merge "per" if current line isn't complete and next isn't a new service
+          (nextLine.match(/^\d+/) && !currentLineIsComplete && !nextLineStartsWithNewService) || // Only merge numbers if current isn't complete
+          (currentLineEndsWithQuantity && !currentLineIsComplete) ||
+          (nextLineStartsWithServiceWord && hasServiceNameNeedingMerge && !currentLineIsComplete && !nextLineStartsWithNewService) ||
+          (nextLine.length > 0 && !nextLine.match(/^(SUBTOTAL|ADDITIONAL|ADJUSTMENT|Page \d+|SERVICE|QUANTITY|PRICE|Audit|Q-)/i) && !currentLineIsComplete && !nextLineStartsWithNewService);
         
         if (shouldMerge) {
           line = line + ' ' + nextLine;
@@ -216,6 +281,12 @@ function parseDatadogQuotePDF(text: string): any {
             nextLine: nextLine,
             merged: line,
           });
+          
+          // If we now have at least 2 USD prices, we can stop merging
+          const newUSDCount = (line.match(/USD\s*[\d.]+/gi) || []).length;
+          if (newUSDCount >= 2 && !hasServiceNameNeedingMerge) {
+            break;
+          }
         } else {
           // No more lines to merge
           break;
@@ -312,9 +383,62 @@ function parseDatadogQuotePDF(text: string): any {
         match = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*USD\s*([\d.]+)\s*per\s*[^U]*USD\s*([\d.]+)/i);
       }
       
-      // If still no match, try without "per" in between
+      // If still no match, try without "per" in between (handles cases like "Containers2,000 USD 1.00 per Container USD 1.00 per Container")
       if (!match) {
         match = line.match(/^([A-Za-z][^0-9]*?)(\d+(?:,\d+)*(?:\s*[MK])?)\s*USD\s*([\d.]+).*?USD\s*([\d.]+)/i);
+      }
+      
+      // Special handling for Containers and similar services with multi-line format
+      // Pattern: "Containers2,000 USD 1.00 per Container USD 1.00 per Container USD 24,000.00"
+      // Or: "Containers2,000 USD 1.00 per Container USD 1.00" (missing total, but we have list and sales)
+      // Or: "Serverless Workload Monitoring (Functions)270 USD 6.00 per Function USD 5.049 per Function"
+      // Or: "Serverless Functions APM110 M USD 12.00 per M Invocations USD 10.098 per M Invocations"
+      // Or: "Fargate Tasks (Infra)8 USD 1.20 per Task USD 1.01 per Task USD 96.96"
+      // Or: "Fargate Tasks (APM)5 USD 2.40 per Task USD 2.02 per Task USD 121.20"
+      if (!match && priceMatches.length >= 2) {
+        const firstPriceIndex = line.indexOf(priceMatches[0][0]);
+        const beforePrice = line.substring(0, firstPriceIndex).trim();
+        
+        // Special handling for Fargate Tasks - format: "Fargate Tasks (Infra)8" or "Fargate Tasks (APM)5"
+        // The quantity comes directly after the closing parenthesis, no space
+        const fargateMatch = beforePrice.match(/^(Fargate\s+Tasks\s*\([^)]+\))\s*(\d+(?:,\d+)*(?:\s*[MK])?)\s*$/i);
+        if (fargateMatch) {
+          const serviceName = fargateMatch[1].trim();
+          const quantity = fargateMatch[2].trim();
+          match = [null, serviceName, quantity, priceMatches[0][1], priceMatches[1][1]];
+        }
+        
+        // Check if it's a known service name pattern (Containers, Serverless, etc.)
+        // Note: Serverless Functions APM might have "M" or "K" in quantity, so we need to handle that
+        // Handle parentheses in service names like "Serverless Workload Monitoring (Functions)"
+        if (!match) {
+          const servicePattern = beforePrice.match(/^(Containers|Serverless\s+Workload\s+Monitoring(?:\s*\([^)]*\))?|Serverless\s+Functions\s+APM|RUM\s+Browser(?:\s+or\s+Mobile\s+Sessions)?|RUM\s+Mobile)/i);
+          if (servicePattern) {
+            // Extract quantity - look for number with commas (and optional M/K) at the end of beforePrice
+            // Handle patterns like:
+            // - "Containers2,000" -> quantity: "2,000"
+            // - "Serverless Workload Monitoring (Functions)270" -> quantity: "270"
+            // - "Serverless Functions APM110 M" -> quantity: "110 M"
+            const quantityMatch = beforePrice.match(/(\d+(?:,\d+)*(?:\s*[MK])?)\s*$/);
+            if (quantityMatch) {
+              const quantityIndex = beforePrice.lastIndexOf(quantityMatch[0]);
+              let serviceName = beforePrice.substring(0, quantityIndex).trim();
+              const quantity = quantityMatch[0];
+              
+              // Clean up service name - remove trailing parentheses if incomplete
+              // But keep parentheses that are part of the service name like "(Functions)"
+              // Only remove if it's clearly incomplete (no closing paren)
+              if (serviceName.match(/\([^)]*$/)) {
+                // Incomplete parentheses - remove it
+                serviceName = serviceName.replace(/\s*\([^)]*$/, '').trim();
+              }
+              
+              if (serviceName.length > 0) {
+                match = [null, serviceName, quantity, priceMatches[0][1], priceMatches[1][1]];
+              }
+            }
+          }
+        }
       }
       
       // Special fallback for cases with units between service name and quantity
@@ -451,12 +575,17 @@ function parseDatadogQuotePDF(text: string): any {
         // This is needed to determine if we should convert the quantity
         let unit = 'units';
         const serviceNameLower = serviceName.toLowerCase();
+        const lineLower = line.toLowerCase();
+        
+        // Check if the full line contains GB (for services like Cloud SIEM where GB is in the quantity/price)
+        // Pattern: "Cloud SIEM10,000 GBUSD 0.24 per GB" - GB appears in quantity and price
+        const hasGBInLine = lineLower.includes('gb') && (lineLower.includes('per gb') || lineLower.match(/\d+.*gb/i));
         
         if (serviceNameLower.includes('host') && !serviceNameLower.includes('database')) {
           unit = 'hosts';
         } else if (serviceNameLower.includes('container')) {
           unit = 'containers';
-        } else if (serviceNameLower.includes('gb') || serviceNameLower.includes('gigabyte')) {
+        } else if (hasGBInLine || serviceNameLower.includes('gb') || serviceNameLower.includes('gigabyte')) {
           unit = 'GB';
         } else if (serviceNameLower.includes('analyzed span') || serviceNameLower.includes('indexed span')) {
           unit = 'M Analyzed Spans';
@@ -484,10 +613,20 @@ function parseDatadogQuotePDF(text: string): any {
           unit = 'M invocations';
         } else if (serviceNameLower.includes('function') && !serviceNameLower.includes('apm')) {
           unit = 'functions';
+        } else if (serviceNameLower.includes('fargate') && serviceNameLower.includes('task')) {
+          unit = 'tasks';
         } else if (serviceNameLower.includes('database monitoring')) {
           unit = 'hosts';
         } else if (serviceNameLower.includes('apm') && serviceNameLower.includes('enterprise')) {
           unit = 'hosts';
+        } else if (serviceNameLower.includes('cloud network monitoring') || 
+                   (serviceNameLower.includes('network monitoring') && !serviceNameLower.includes('device'))) {
+          unit = 'hosts';
+        } else if (serviceNameLower.includes('app and api protection') || 
+                   (serviceNameLower.includes('app') && serviceNameLower.includes('api') && serviceNameLower.includes('protection'))) {
+          unit = 'hosts';
+        } else if (serviceNameLower.includes('incident management') || serviceNameLower.includes('incident response')) {
+          unit = 'Seat';
         }
 
         // Extract quantity (remove commas, handle "M", "K" suffixes)

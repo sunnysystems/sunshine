@@ -20,12 +20,17 @@ export function applyUnitConversion(
 
   if (
     serviceKey === 'indexed_spans' ||
-    serviceKey === 'log_events' ||
+    serviceKey === 'log_events_3day' ||
+    serviceKey === 'log_events_7day' ||
+    serviceKey === 'log_events_15day' ||
+    serviceKey === 'log_events_30day' ||
     serviceKey === 'cloud_siem_indexed'
   ) {
     // Convert to millions
     return dailyValues.map(d => ({ ...d, value: d.value / 1000000 }));
   }
+
+  // cloud_siem uses extractCloudSIEMGB which already converts to GB, so no additional conversion needed
 
   if (serviceKey === 'llm_observability') {
     // Convert to 10K units

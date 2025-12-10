@@ -39,6 +39,12 @@ export function useTranslation() {
     const translations_data = translations[language];
     
     return (path: string, params?: Record<string, string | number>): string => {
+      // Safety check: ensure translations_data exists
+      if (!translations_data || typeof translations_data !== 'object') {
+        console.warn(`[useTranslation] Translations data not available for language: ${language}`);
+        return path;
+      }
+      
       const keys = path.split('.');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let value: any = translations_data;
@@ -47,11 +53,18 @@ export function useTranslation() {
         if (value && typeof value === 'object' && key in value) {
           value = value[key];
         } else {
+          // Log missing translation for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`[useTranslation] Translation not found for path: ${path} (stopped at key: ${key})`);
+          }
           return path; // Return the path if translation not found
         }
       }
       
       if (typeof value !== 'string') {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[useTranslation] Translation value is not a string for path: ${path}`, value);
+        }
         return path;
       }
 

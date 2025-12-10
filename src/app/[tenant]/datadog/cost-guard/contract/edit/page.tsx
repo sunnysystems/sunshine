@@ -491,11 +491,21 @@ export default function EditContractPage() {
 
   // Group services by category
   const servicesByCategory = {
-    infrastructure: getServicesByCategory('infrastructure'),
-    apm: getServicesByCategory('apm'),
-    logs: getServicesByCategory('logs'),
-    observability: getServicesByCategory('observability'),
-    security: getServicesByCategory('security'),
+    infrastructure: getServicesByCategory('infrastructure').sort((a, b) => 
+      a.serviceName.localeCompare(b.serviceName)
+    ),
+    apm: getServicesByCategory('apm').sort((a, b) => 
+      a.serviceName.localeCompare(b.serviceName)
+    ),
+    logs: getServicesByCategory('logs').sort((a, b) => 
+      a.serviceName.localeCompare(b.serviceName)
+    ),
+    observability: getServicesByCategory('observability').sort((a, b) => 
+      a.serviceName.localeCompare(b.serviceName)
+    ),
+    security: getServicesByCategory('security').sort((a, b) => 
+      a.serviceName.localeCompare(b.serviceName)
+    ),
   };
 
   return (

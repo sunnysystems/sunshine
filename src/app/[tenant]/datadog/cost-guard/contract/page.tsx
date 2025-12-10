@@ -131,12 +131,10 @@ export default function CostGuardContractPage() {
         isPollingRef.current = false;
       }, MAX_POLLING_TIME);
 
-      const [contractRes, summaryRes] = await Promise.all([
-        fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`),
-        fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`),
-      ]);
+      // First, check if contract exists
+      const contractRes = await fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`);
 
-      // Clear progress polling after main request completes
+      // Clear progress polling after contract request completes
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
@@ -147,8 +145,8 @@ export default function CostGuardContractPage() {
       }
       isPollingRef.current = false;
 
-      // Check for rate limit errors
-      if (contractRes.status === 429 || summaryRes.status === 429) {
+      // Check for rate limit errors on contract request
+      if (contractRes.status === 429) {
         // Clear polling on rate limit
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
@@ -160,8 +158,7 @@ export default function CostGuardContractPage() {
         }
         isPollingRef.current = false;
         
-        const errorResponse = contractRes.status === 429 ? contractRes : summaryRes;
-        const errorData = await errorResponse.json().catch(() => ({
+        const errorData = await contractRes.json().catch(() => ({
           message: t('datadog.costGuard.api.rateLimit.title'),
           retryAfter: null,
         }));
@@ -174,7 +171,7 @@ export default function CostGuardContractPage() {
       }
 
       // Check for timeout errors
-      if (contractRes.status === 504 || summaryRes.status === 504) {
+      if (contractRes.status === 504) {
         // Clear polling on timeout
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
@@ -186,8 +183,7 @@ export default function CostGuardContractPage() {
         }
         isPollingRef.current = false;
         
-        const errorResponse = contractRes.status === 504 ? contractRes : summaryRes;
-        const errorData = await errorResponse.json().catch(() => ({
+        const errorData = await contractRes.json().catch(() => ({
           message: t('datadog.costGuard.api.timeout.title'),
         }));
         setTimeoutError(true);
@@ -196,12 +192,64 @@ export default function CostGuardContractPage() {
         return;
       }
 
-      if (!contractRes.ok || !summaryRes.ok) {
+      if (!contractRes.ok) {
         const errorText = await contractRes.text().catch(() => t('datadog.costGuard.errors.fetchContract'));
         throw new Error(errorText || t('datadog.costGuard.errors.fetchContract'));
       }
 
       const contract = await contractRes.json();
+
+      // If no contract exists, set data with null config and skip summary
+      if (!contract.config) {
+        setContractData({
+          config: null,
+          summary: {
+            contractedSpend: 0,
+            projectedSpend: 0,
+            utilization: 0,
+            runway: null,
+            overageRisk: 'Low',
+            status: 'ok',
+          },
+        });
+        setRateLimitError(false);
+        setRetryAfter(undefined);
+        setLoading(false);
+        return;
+      }
+
+      // Contract exists, fetch summary
+      const summaryRes = await fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`);
+
+      // Check for rate limit errors on summary request
+      if (summaryRes.status === 429) {
+        const errorData = await summaryRes.json().catch(() => ({
+          message: t('datadog.costGuard.api.rateLimit.title'),
+          retryAfter: null,
+        }));
+        setRateLimitError(true);
+        setRetryAfter(errorData.retryAfter !== null && errorData.retryAfter !== undefined ? errorData.retryAfter : 30);
+        setError(errorData.message || t('datadog.costGuard.api.rateLimit.title'));
+        setLoading(false);
+        return;
+      }
+
+      // Check for timeout errors on summary request
+      if (summaryRes.status === 504) {
+        const errorData = await summaryRes.json().catch(() => ({
+          message: t('datadog.costGuard.api.timeout.title'),
+        }));
+        setTimeoutError(true);
+        setError(errorData.message || t('datadog.costGuard.api.timeout.title'));
+        setLoading(false);
+        return;
+      }
+
+      if (!summaryRes.ok) {
+        const errorText = await summaryRes.text().catch(() => t('datadog.costGuard.errors.fetchSummary'));
+        throw new Error(errorText || t('datadog.costGuard.errors.fetchSummary'));
+      }
+
       const summary = await summaryRes.json();
 
       setContractData({
@@ -412,6 +460,44 @@ export default function CostGuardContractPage() {
     );
   }
 
+  // Show empty state when no contract is configured
+  if (contractData && !contractData.config) {
+    return (
+      <div className="flex flex-col gap-10">
+        <section className="space-y-6">
+          <header className="flex flex-col gap-6 rounded-2xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold tracking-tight">
+                {t('datadog.costGuard.heroTitle')}
+              </h1>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                {t('datadog.costGuard.heroSubtitle')}
+              </p>
+            </div>
+          </header>
+        </section>
+
+        <Card className="border-border/60 bg-card/95 shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center gap-6 p-12 text-center">
+            <div className="space-y-4">
+              <h2 className="text-2xl font-semibold tracking-tight">
+                {t('datadog.costGuard.contractRequired.title')}
+              </h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {t('datadog.costGuard.contractRequired.description')}
+              </p>
+            </div>
+            <Button size="lg" asChild>
+              <Link href={`/${tenant}/datadog/cost-guard/contract/edit`}>
+                {t('datadog.costGuard.contractRequired.createButton')}
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-10">
       <section className="space-y-6">
@@ -537,7 +623,7 @@ export default function CostGuardContractPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Button size="sm" asChild>
-                <Link href="./contract/edit">
+                <Link href={`/${tenant}/datadog/cost-guard/contract/edit`}>
                   {t('datadog.costGuard.contractCard.editButton')}
                 </Link>
               </Button>

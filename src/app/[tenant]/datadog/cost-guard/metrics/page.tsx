@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 import { MetricUsageCard } from '@/components/datadog/cost-guard/MetricUsageCard';
@@ -11,6 +12,7 @@ import { MetricsLoading } from '@/components/datadog/cost-guard/LoadingState';
 import { ProgressIndicator } from '@/components/datadog/cost-guard/ProgressIndicator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
 import { formatNumberWithDecimals } from '@/lib/utils';
@@ -105,6 +107,23 @@ export default function CostGuardMetricsPage() {
       setTimeoutError(false);
       setRetryAfter(undefined);
       setProgress({ progress: 0, total: 0, completed: 0, current: '' });
+
+      // First, check if contract exists
+      const contractRes = await fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`);
+      
+      if (!contractRes.ok) {
+        const errorText = await contractRes.text().catch(() => t('datadog.costGuard.errors.fetchContract'));
+        throw new Error(errorText || t('datadog.costGuard.errors.fetchContract'));
+      }
+
+      const contract = await contractRes.json();
+
+      // If no contract exists, show appropriate message
+      if (!contract.config) {
+        setError('contractRequired');
+        setLoading(false);
+        return;
+      }
 
       // Clear any existing polling before starting new one
       if (progressIntervalRef.current) {
@@ -483,6 +502,39 @@ export default function CostGuardMetricsPage() {
   }
 
   if (error) {
+    // Show special state when contract is required
+    if (error === 'contractRequired') {
+      return (
+        <div className="space-y-8">
+          <header className="space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {t('datadog.costGuard.metricsSection.title')}
+            </h1>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              {t('datadog.costGuard.metricsSection.description')}
+            </p>
+          </header>
+          <Card className="border-border/60 bg-card/95 shadow-sm">
+            <CardContent className="flex flex-col items-center justify-center gap-6 p-12 text-center">
+              <div className="space-y-4">
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  {t('datadog.costGuard.contractRequired.title')}
+                </h2>
+                <p className="max-w-md text-sm text-muted-foreground">
+                  {t('datadog.costGuard.contractRequired.description')}
+                </p>
+              </div>
+              <Button size="lg" asChild>
+                <Link href={`/${tenant}/datadog/cost-guard/contract/edit`}>
+                  {t('datadog.costGuard.contractRequired.createButton')}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-8">
         <header className="space-y-2">

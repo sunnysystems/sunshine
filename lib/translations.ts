@@ -1082,8 +1082,15 @@ export const translations = {
           loading: 'Error loading data',
           loadingMessage: 'Failed to load Cost Guard data. Please try again.',
           fetchContract: 'Failed to fetch contract data',
+          fetchSummary: 'Failed to fetch summary data',
           fetchMetrics: 'Failed to fetch metrics data',
           loadData: 'Failed to load data',
+        },
+        contractRequired: {
+          title: 'Contract Configuration Required',
+          description:
+            'You need to configure your Datadog contract before you can view cost metrics and projections. Create your contract to get started.',
+          createButton: 'Create Contract',
         },
         api: {
           timeout: {
@@ -2184,8 +2191,15 @@ export const translations = {
           loading: 'Erro ao carregar dados',
           loadingMessage: 'Falha ao carregar dados do Cost Guard. Por favor, tente novamente.',
           fetchContract: 'Falha ao buscar dados do contrato',
+          fetchSummary: 'Falha ao buscar dados de resumo',
           fetchMetrics: 'Falha ao buscar dados de métricas',
           loadData: 'Falha ao carregar dados',
+        },
+        contractRequired: {
+          title: 'Configuração de Contrato Necessária',
+          description:
+            'Você precisa configurar seu contrato do Datadog antes de visualizar métricas de custo e projeções. Crie seu contrato para começar.',
+          createButton: 'Criar Contrato',
         },
         api: {
           timeout: {

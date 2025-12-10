@@ -39,8 +39,20 @@ function mapQuoteServiceNameToServiceKey(serviceName: string): string | null {
   if (normalized.includes('infra host') && normalized.includes('enterprise')) {
     return 'infra_host_enterprise';
   }
-  if (normalized.includes('container') && !normalized.includes('profiled')) {
+  if (normalized.includes('infra host') && normalized.includes('pro plus')) {
+    return 'infra_host_pro_plus';
+  }
+  if (normalized.includes('container') && !normalized.includes('profiled') && !normalized.includes('fargate')) {
     return 'containers';
+  }
+  if (normalized.includes('fargate') && normalized.includes('task')) {
+    if (normalized.includes('apm')) {
+      return 'fargate_tasks_apm';
+    }
+    return 'fargate_tasks_infra';
+  }
+  if (normalized.includes('cloud network monitoring') || (normalized.includes('network monitoring') && !normalized.includes('device'))) {
+    return 'cloud_network_monitoring';
   }
   if (normalized.includes('database monitoring')) {
     return 'database_monitoring';
@@ -53,7 +65,11 @@ function mapQuoteServiceNameToServiceKey(serviceName: string): string | null {
   }
 
   // APM & Tracing
+  // APM Host and APM Enterprise are the same product
   if (normalized.includes('apm enterprise') || (normalized.includes('apm') && normalized.includes('enterprise'))) {
+    return 'apm_enterprise';
+  }
+  if (normalized.includes('apm host') && !normalized.includes('enterprise')) {
     return 'apm_enterprise';
   }
   if (normalized.includes('indexed spans') || (normalized.includes('analyzed spans'))) {
@@ -63,9 +79,23 @@ function mapQuoteServiceNameToServiceKey(serviceName: string): string | null {
     return 'ingested_spans';
   }
 
-  // Logs
+  // Logs - handle different retention periods
   if (normalized.includes('log events') || (normalized.includes('indexed logs'))) {
-    return 'log_events';
+    // Include retention period in service key to avoid duplicates
+    if (normalized.includes('3 day') || normalized.includes('3-day')) {
+      return 'log_events_3day';
+    }
+    if (normalized.includes('15 day') || normalized.includes('15-day')) {
+      return 'log_events_15day';
+    }
+    if (normalized.includes('30 day') || normalized.includes('30-day')) {
+      return 'log_events_30day';
+    }
+    if (normalized.includes('7 day') || normalized.includes('7-day')) {
+      return 'log_events_7day';
+    }
+    // Default to 7day if no period specified
+    return 'log_events_7day';
   }
   if (normalized.includes('log ingestion') || (normalized.includes('ingested logs'))) {
     return 'log_ingestion';
@@ -89,11 +119,28 @@ function mapQuoteServiceNameToServiceKey(serviceName: string): string | null {
   }
 
   // Security & Compliance
-  if (normalized.includes('cloud siem') || normalized.includes('siem indexed')) {
+  if (normalized.includes('cloud siem') && !normalized.includes('indexed') && !normalized.includes('15 months')) {
+    return 'cloud_siem';
+  }
+  if (normalized.includes('siem indexed') || (normalized.includes('cloud siem') && normalized.includes('indexed'))) {
     return 'cloud_siem_indexed';
   }
   if (normalized.includes('code security') || normalized.includes('security bundle')) {
     return 'code_security_bundle';
+  }
+  if (normalized.includes('csm pro') || (normalized.includes('csm') && normalized.includes('pro') && normalized.includes('host'))) {
+    return 'csm_pro_host';
+  }
+
+  // Service Management
+  if (normalized.includes('incident management') || normalized.includes('incident response')) {
+    return 'incident_management';
+  }
+
+  // Security - App and API Protection
+  if (normalized.includes('app and api protection') || 
+      (normalized.includes('app') && normalized.includes('api') && normalized.includes('protection'))) {
+    return 'app_and_api_protection';
   }
 
   return null;
@@ -156,24 +203,158 @@ function calculateCommittedValue(quantity: number, listPrice: number): number {
 }
 
 /**
+ * Generate a service key from service name for unknown services
+ * Ensures uniqueness by including a hash of the full name
+ */
+function generateServiceKeyFromName(serviceName: string, index?: number): string {
+  const baseKey = serviceName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .substring(0, 40); // Limit base length
+  
+  // Add index if provided to ensure uniqueness
+  const suffix = index !== undefined ? `_${index}` : '';
+  
+  return `unknown_${baseKey}${suffix}`.substring(0, 50);
+}
+
+/**
+ * Determine category from service name
+ */
+function inferCategoryFromServiceName(serviceName: string): 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security' {
+  const normalized = serviceName.toLowerCase();
+  
+  if (normalized.includes('host') || normalized.includes('container') || normalized.includes('infra') || normalized.includes('fargate')) {
+    return 'infrastructure';
+  }
+  if (normalized.includes('apm') || normalized.includes('span') || normalized.includes('trace')) {
+    return 'apm';
+  }
+  if (normalized.includes('log')) {
+    return 'logs';
+  }
+  if (normalized.includes('siem') || normalized.includes('security')) {
+    return 'security';
+  }
+  return 'observability';
+}
+
+/**
+ * Determine product family from service name
+ */
+function inferProductFamilyFromServiceName(serviceName: string): string {
+  const normalized = serviceName.toLowerCase();
+  
+  if (normalized.includes('host') || normalized.includes('infra')) {
+    return 'infra_hosts';
+  }
+  if (normalized.includes('container') || normalized.includes('fargate')) {
+    return 'containers';
+  }
+  if (normalized.includes('apm')) {
+    return 'apm';
+  }
+  if (normalized.includes('log')) {
+    return 'logs';
+  }
+  if (normalized.includes('rum') || normalized.includes('session')) {
+    return 'rum';
+  }
+  if (normalized.includes('synthetic') || normalized.includes('test')) {
+    return 'synthetics';
+  }
+  if (normalized.includes('siem')) {
+    return 'cloud_siem';
+  }
+  return 'custom_metrics'; // Default fallback
+}
+
+/**
  * Import services from a Datadog quote
  */
 export function importQuoteServices(quote: DatadogQuote): ServiceConfig[] {
   const services: ServiceConfig[] = [];
+  const serviceKeyCounts = new Map<string, number>(); // Track service key usage for uniqueness
 
-  for (const quoteService of quote.services) {
+  for (let index = 0; index < quote.services.length; index++) {
+    const quoteService = quote.services[index];
     const serviceKey = mapQuoteServiceNameToServiceKey(quoteService.serviceName);
     
-    if (!serviceKey) {
-      // Skip services we don't recognize
-      console.warn(`Unknown service in quote: ${quoteService.serviceName}`);
-      continue;
-    }
+    let mapping: ServiceMapping | null = null;
+    let finalServiceKey: string;
+    let finalServiceName: string;
+    let productFamily: string;
+    let usageType: string | undefined;
+    let unit: string;
+    let category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
 
-    const mapping = SERVICE_MAPPINGS[serviceKey];
-    if (!mapping) {
-      console.warn(`No mapping found for service key: ${serviceKey}`);
-      continue;
+    if (serviceKey) {
+      // Known service - use mapping
+      mapping = SERVICE_MAPPINGS[serviceKey];
+      if (!mapping) {
+        // Service key was generated (e.g., log_events_3day) but no mapping exists
+        // Keep the generated service_key to avoid duplicates, but treat as unknown for other fields
+        console.warn(`No mapping found for service key: ${serviceKey}, treating as unknown but keeping service_key`);
+        
+        // Track service keys to detect duplicates
+        const count = serviceKeyCounts.get(serviceKey) || 0;
+        serviceKeyCounts.set(serviceKey, count + 1);
+        
+        // If duplicate, make it unique by appending a suffix
+        if (count > 0) {
+          finalServiceKey = `${serviceKey}_${count + 1}`;
+          console.warn(`Duplicate service key detected: ${serviceKey} - using ${finalServiceKey} instead`);
+        } else {
+          finalServiceKey = serviceKey; // Keep the generated key (e.g., log_events_3day)
+        }
+        
+        finalServiceName = quoteService.serviceName; // Use original name from quote
+        productFamily = inferProductFamilyFromServiceName(quoteService.serviceName);
+        usageType = undefined; // Unknown usage type
+        unit = quoteService.unit || 'units'; // Use unit from quote or default
+        category = inferCategoryFromServiceName(quoteService.serviceName);
+      } else {
+        // Track known service keys to detect duplicates
+        const count = serviceKeyCounts.get(serviceKey) || 0;
+        serviceKeyCounts.set(serviceKey, count + 1);
+        
+        // If duplicate, make it unique by appending a suffix
+        if (count > 0) {
+          finalServiceKey = `${serviceKey}_${count + 1}`;
+          console.warn(`Duplicate service key detected: ${serviceKey} - using ${finalServiceKey} instead`);
+        } else {
+          finalServiceKey = serviceKey;
+        }
+        
+        finalServiceName = mapping.serviceName;
+        productFamily = mapping.productFamily;
+        usageType = mapping.usageType;
+        unit = mapping.unit;
+        category = mapping.category;
+      }
+    } else {
+      // No service key was generated at all - completely unknown service
+      console.warn(`Unknown service in quote: ${quoteService.serviceName} - will be included with inferred values`);
+      
+      // Generate unique service key
+      let baseKey = generateServiceKeyFromName(quoteService.serviceName, index);
+      let uniqueKey = baseKey;
+      let counter = 0;
+      
+      // Ensure uniqueness within this import
+      while (serviceKeyCounts.has(uniqueKey)) {
+        counter++;
+        uniqueKey = `${baseKey}_${counter}`;
+      }
+      serviceKeyCounts.set(uniqueKey, 1);
+      
+      finalServiceKey = uniqueKey;
+      finalServiceName = quoteService.serviceName; // Use original name
+      productFamily = inferProductFamilyFromServiceName(quoteService.serviceName);
+      usageType = undefined; // Unknown usage type
+      unit = quoteService.unit || 'units'; // Use unit from quote or default
+      category = inferCategoryFromServiceName(quoteService.serviceName);
     }
 
     const quantity = parseQuantity(quoteService.quantity, quoteService.unit);
@@ -184,16 +365,16 @@ export function importQuoteServices(quote: DatadogQuote): ServiceConfig[] {
     const threshold = quantity * 0.9;
 
     services.push({
-      serviceKey,
-      serviceName: mapping.serviceName,
-      productFamily: mapping.productFamily,
-      usageType: mapping.usageType,
+      serviceKey: finalServiceKey!,
+      serviceName: finalServiceName!,
+      productFamily: productFamily!,
+      usageType,
       quantity,
       listPrice,
-      unit: mapping.unit,
+      unit: unit!,
       committedValue,
       threshold,
-      category: mapping.category,
+      category: category!,
     });
   }
 

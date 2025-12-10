@@ -211,9 +211,11 @@ export function DatadogCredentialsForm({
           {isSaving && (
             <Alert>
               <AlertCircle className="h-4 w-4 animate-pulse" />
-              <AlertTitle>{t('datadog.credentials.validatingTitle')}</AlertTitle>
+              <AlertTitle>
+                {t('datadog.credentials.validatingTitle') || 'Validating credentials'}
+              </AlertTitle>
               <AlertDescription>
-                {t('datadog.credentials.validatingMessage')}
+                {t('datadog.credentials.validatingMessage') || 'Checking credentials with Datadog API to ensure they are valid...'}
               </AlertDescription>
             </Alert>
           )}
