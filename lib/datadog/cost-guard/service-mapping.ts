@@ -99,6 +99,7 @@ function extractContainers(data: DatadogAPIResponse): number {
  */
 function extractCloudNetworkMonitoring(data: DatadogAPIResponse): number {
   const maxValue = extractMaxUsage(data, (usageType) =>
+    usageType === 'host_count' || // API returns 'host_count' for network_hosts product_family (Cloud Network Monitoring)
     usageType === 'network_hosts' ||
     usageType === 'network_monitoring' ||
     usageType === 'network_flows' ||
@@ -644,6 +645,7 @@ function extractCloudSIEM(data: DatadogAPIResponse): number {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
           if (
+            measurement.usage_type === 'events' ||
             measurement.usage_type === 'siem_indexed' ||
             measurement.usage_type === 'cloud_siem' ||
             measurement.usage_type?.includes('siem')
@@ -671,6 +673,7 @@ function extractCloudSIEMGB(data: DatadogAPIResponse): number {
       if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
         for (const measurement of hourlyUsage.attributes.measurements) {
           if (
+            measurement.usage_type === 'events' ||
             measurement.usage_type === 'siem_indexed' ||
             measurement.usage_type === 'cloud_siem' ||
             measurement.usage_type?.includes('siem')
@@ -697,8 +700,11 @@ function extractAppAndAPIProtection(data: DatadogAPIResponse): number {
     usageType === 'application_security' ||
     usageType === 'app_protection' ||
     usageType === 'api_protection' ||
+    usageType === 'app_sec_host_count' ||
+    usageType === 'app_sec' ||
     (usageType?.includes('application') && usageType?.includes('security')) ||
-    (usageType?.includes('app') && usageType?.includes('protection'))
+    (usageType?.includes('app') && usageType?.includes('protection')) ||
+    (usageType?.includes('app_sec'))
   );
   
   if (maxValue > 0) {
@@ -834,7 +840,7 @@ export const SERVICE_MAPPINGS: Record<string, ServiceMapping> = {
     serviceKey: 'cloud_network_monitoring',
     serviceName: 'Cloud Network Monitoring',
     productFamily: 'network_hosts',
-    usageType: 'network_hosts',
+    usageType: 'host_count',
     unit: 'hosts',
     category: 'infrastructure',
     apiEndpoint: '/api/v2/usage/hourly_usage',
@@ -1153,6 +1159,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     
     case 'cloud_network_monitoring':
       return (usageType: string) =>
+        usageType === 'host_count' || // API returns 'host_count' for network_hosts product_family (Cloud Network Monitoring)
         usageType === 'network_hosts' ||
         usageType === 'network_monitoring' ||
         usageType === 'network_flows' ||
@@ -1259,6 +1266,7 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
     case 'cloud_siem':
     case 'cloud_siem_indexed':
       return (usageType: string) =>
+        usageType === 'events' ||
         usageType === 'siem_indexed' ||
         usageType === 'cloud_siem' ||
         usageType?.includes('siem');
@@ -1288,8 +1296,11 @@ export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => 
         usageType === 'application_security' ||
         usageType === 'app_protection' ||
         usageType === 'api_protection' ||
+        usageType === 'app_sec_host_count' ||
+        usageType === 'app_sec' ||
         (usageType?.includes('application') && usageType?.includes('security')) ||
-        (usageType?.includes('app') && usageType?.includes('protection'));
+        (usageType?.includes('app') && usageType?.includes('protection')) ||
+        (usageType?.includes('app_sec'));
     
     default:
       // For services without specific filters, return undefined (will use all measurements)

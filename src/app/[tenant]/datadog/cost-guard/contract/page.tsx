@@ -74,76 +74,8 @@ export default function CostGuardContractPage() {
       }
       isPollingRef.current = false;
 
-      // Start polling for progress with protection against loops
-      isPollingRef.current = true;
-      const startTime = Date.now();
-      const MAX_POLLING_TIME = 5 * 60 * 1000; // 5 minutes maximum
-      const POLLING_INTERVAL = 1000; // Poll every 1 second (reduced from 500ms)
-
-      progressIntervalRef.current = setInterval(async () => {
-        // Stop if already stopped
-        if (!isPollingRef.current) {
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-          return;
-        }
-
-        // Stop if exceeded max time
-        if (Date.now() - startTime > MAX_POLLING_TIME) {
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-          isPollingRef.current = false;
-          return;
-        }
-
-        try {
-          const progressRes = await fetch(
-            `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=summary`,
-          );
-          if (progressRes.ok) {
-            const progressData = await progressRes.json();
-            setProgress(progressData);
-            
-            // Stop polling if progress is complete (100% or completed >= total)
-            if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
-              if (progressIntervalRef.current) {
-                clearInterval(progressIntervalRef.current);
-                progressIntervalRef.current = null;
-              }
-              isPollingRef.current = false;
-            }
-          }
-        } catch {
-          // Ignore progress fetch errors, but don't stop polling
-        }
-      }, POLLING_INTERVAL);
-
-      // Set timeout to force stop polling after max time
-      progressTimeoutRef.current = setTimeout(() => {
-        if (progressIntervalRef.current) {
-          clearInterval(progressIntervalRef.current);
-          progressIntervalRef.current = null;
-        }
-        isPollingRef.current = false;
-      }, MAX_POLLING_TIME);
-
       // First, check if contract exists
       const contractRes = await fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`);
-
-      // Clear progress polling after contract request completes
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-      if (progressTimeoutRef.current) {
-        clearTimeout(progressTimeoutRef.current);
-        progressTimeoutRef.current = null;
-      }
-      isPollingRef.current = false;
 
       // Check for rate limit errors on contract request
       if (contractRes.status === 429) {
@@ -218,11 +150,79 @@ export default function CostGuardContractPage() {
         return;
       }
 
-      // Contract exists, fetch summary
+      // Contract exists, start polling for progress BEFORE fetching summary
+      isPollingRef.current = true;
+      const startTime = Date.now();
+      const MAX_POLLING_TIME = 5 * 60 * 1000; // 5 minutes maximum
+      const POLLING_INTERVAL = 1000; // Poll every 1 second
+
+      progressIntervalRef.current = setInterval(async () => {
+        // Stop if already stopped
+        if (!isPollingRef.current) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          return;
+        }
+
+        // Stop if exceeded max time
+        if (Date.now() - startTime > MAX_POLLING_TIME) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          isPollingRef.current = false;
+          return;
+        }
+
+        try {
+          const progressRes = await fetch(
+            `/api/datadog/cost-guard/progress?tenant=${encodeURIComponent(tenant)}&type=summary`,
+          );
+          if (progressRes.ok) {
+            const progressData = await progressRes.json();
+            setProgress(progressData);
+            
+            // Stop polling if progress is complete (100% or completed >= total)
+            if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
+              if (progressIntervalRef.current) {
+                clearInterval(progressIntervalRef.current);
+                progressIntervalRef.current = null;
+              }
+              isPollingRef.current = false;
+            }
+          }
+        } catch {
+          // Ignore progress fetch errors, but don't stop polling
+        }
+      }, POLLING_INTERVAL);
+
+      // Set timeout to force stop polling after max time
+      progressTimeoutRef.current = setTimeout(() => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        isPollingRef.current = false;
+      }, MAX_POLLING_TIME);
+
+      // Contract exists, fetch summary (this will start the progress tracking)
       const summaryRes = await fetch(`/api/datadog/cost-guard/summary?tenant=${encodeURIComponent(tenant)}`);
 
       // Check for rate limit errors on summary request
       if (summaryRes.status === 429) {
+        // Clear polling on rate limit
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorData = await summaryRes.json().catch(() => ({
           message: t('datadog.costGuard.api.rateLimit.title'),
           retryAfter: null,
@@ -236,6 +236,17 @@ export default function CostGuardContractPage() {
 
       // Check for timeout errors on summary request
       if (summaryRes.status === 504) {
+        // Clear polling on timeout
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorData = await summaryRes.json().catch(() => ({
           message: t('datadog.costGuard.api.timeout.title'),
         }));
@@ -246,11 +257,33 @@ export default function CostGuardContractPage() {
       }
 
       if (!summaryRes.ok) {
+        // Clear polling on error
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorText = await summaryRes.text().catch(() => t('datadog.costGuard.errors.fetchSummary'));
         throw new Error(errorText || t('datadog.costGuard.errors.fetchSummary'));
       }
 
       const summary = await summaryRes.json();
+
+      // Clear polling after summary is complete
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+        progressTimeoutRef.current = null;
+      }
+      isPollingRef.current = false;
 
       setContractData({
         config: contract.config,
@@ -279,7 +312,7 @@ export default function CostGuardContractPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenant, rateLimitError]);
+  }, [tenant, rateLimitError, t]);
 
   useEffect(() => {
     fetchData();

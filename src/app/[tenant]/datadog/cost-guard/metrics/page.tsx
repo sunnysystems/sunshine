@@ -177,13 +177,34 @@ export default function CostGuardMetricsPage() {
               setRateLimitWaitCountdown(null);
             }
             
+            // Stop polling if progress was never initialized after reasonable time (10 seconds)
+            // This prevents infinite loops when the metrics request fails silently
+            if (Date.now() - startTime > 10000 && progressData.total === 0) {
+              if (progressIntervalRef.current) {
+                clearInterval(progressIntervalRef.current);
+                progressIntervalRef.current = null;
+              }
+              if (progressTimeoutRef.current) {
+                clearTimeout(progressTimeoutRef.current);
+                progressTimeoutRef.current = null;
+              }
+              isPollingRef.current = false;
+              setLoading(false);
+              return;
+            }
+            
             // Stop polling if progress is complete (100% or completed >= total)
             if (progressData.progress >= 100 || (progressData.completed >= progressData.total && progressData.total > 0)) {
               if (progressIntervalRef.current) {
                 clearInterval(progressIntervalRef.current);
                 progressIntervalRef.current = null;
               }
+              if (progressTimeoutRef.current) {
+                clearTimeout(progressTimeoutRef.current);
+                progressTimeoutRef.current = null;
+              }
               isPollingRef.current = false;
+              setLoading(false);
             }
           }
         } catch {
@@ -198,26 +219,16 @@ export default function CostGuardMetricsPage() {
           progressIntervalRef.current = null;
         }
         isPollingRef.current = false;
+        setLoading(false);
       }, MAX_POLLING_TIME);
 
       const response = await fetch(
         `/api/datadog/cost-guard/metrics?tenant=${encodeURIComponent(tenant)}`,
       );
 
-      // Clear progress polling after main request completes
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-      if (progressTimeoutRef.current) {
-        clearTimeout(progressTimeoutRef.current);
-        progressTimeoutRef.current = null;
-      }
-      isPollingRef.current = false;
-
       // Check for rate limit errors
       if (response.status === 429) {
-        // Clear polling on rate limit
+        // Clear polling on rate limit - stop all processing
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
@@ -234,9 +245,11 @@ export default function CostGuardMetricsPage() {
         }));
         setRateLimitError(true);
         // Use retryAfter from response, or default to 30 seconds if not provided
-        setRetryAfter(errorData.retryAfter !== null && errorData.retryAfter !== undefined ? errorData.retryAfter : 30);
+        const waitTime = errorData.retryAfter !== null && errorData.retryAfter !== undefined ? errorData.retryAfter : 30;
+        setRetryAfter(waitTime);
         setError(errorData.message || t('datadog.costGuard.api.rateLimit.title'));
         setLoading(false);
+        // ErrorState component will handle countdown and page reload
         return;
       }
 
@@ -263,11 +276,25 @@ export default function CostGuardMetricsPage() {
       }
 
       if (!response.ok) {
+        // Clear polling on error
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        if (progressTimeoutRef.current) {
+          clearTimeout(progressTimeoutRef.current);
+          progressTimeoutRef.current = null;
+        }
+        isPollingRef.current = false;
+        
         const errorText = await response.text().catch(() => t('datadog.costGuard.errors.fetchMetrics'));
         throw new Error(errorText || t('datadog.costGuard.errors.fetchMetrics'));
       }
 
       const data = await response.json();
+      
+      // Don't clear polling here - let it continue until progress reaches 100%
+      // The polling interval will handle stopping when progress.completed >= progress.total
       
       // Handle both services (new format) and metrics (old format)
       if (data.services && Array.isArray(data.services) && data.services.length > 0) {
@@ -303,7 +330,8 @@ export default function CostGuardMetricsPage() {
       
       setRateLimitError(false);
       setRetryAfter(undefined);
-      setProgress({ progress: 100, total: progress.total || 1, completed: progress.total || 1, current: '' });
+      // Don't manually set progress to 100% - let polling handle it naturally
+      // Don't set loading to false here - let it be set when polling completes
     } catch (err) {
       // Clear polling on error
       if (progressIntervalRef.current) {
@@ -322,7 +350,13 @@ export default function CostGuardMetricsPage() {
         setRetryAfter(undefined);
         setError(err instanceof Error ? err.message : t('datadog.costGuard.errors.loadData'));
       }
-    } finally {
+      // Set loading to false on error
+      setLoading(false);
+    }
+    
+    // Only set loading to false if polling is not active
+    // The polling interval will handle setting loading to false when progress completes
+    if (!isPollingRef.current) {
       setLoading(false);
     }
   }, [tenant, rateLimitError]);
@@ -344,7 +378,7 @@ export default function CostGuardMetricsPage() {
     };
   }, [fetchData]);
 
-  // Update rate limit countdown timer
+  // Update rate limit countdown timer (from progress polling during normal operation)
   useEffect(() => {
     if (!progress.rateLimitWaiting || rateLimitWaitCountdown === null || rateLimitWaitCountdown <= 0) {
       return;

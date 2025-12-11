@@ -50,12 +50,12 @@ export function ErrorState({
     return () => clearInterval(interval);
   }, [rateLimitError, retryAfter]);
 
-  // Auto-retry when countdown reaches 0
+  // Auto-reload page when countdown reaches 0 (for rate limit errors)
   useEffect(() => {
-    if (rateLimitError && countdown === 0 && onRetry) {
-      onRetry();
+    if (rateLimitError && countdown === 0) {
+      window.location.reload();
     }
-  }, [rateLimitError, countdown, onRetry]);
+  }, [rateLimitError, countdown]);
 
   const displayTitle = rateLimitError
     ? t('datadog.costGuard.api.rateLimit.title')
