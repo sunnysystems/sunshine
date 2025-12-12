@@ -209,3 +209,42 @@ export interface MonthlyDay extends DailyValue {
   isForecast: boolean;
 }
 
+/**
+ * Billing dimension from Datadog billing_dimension_mapping endpoint
+ */
+export interface BillingDimension {
+  dimensionId: string;
+  label: string;
+  hourlyUsageKeys: string[];
+  mappedServiceKey?: string | null;
+}
+
+/**
+ * Raw response from Datadog billing_dimension_mapping endpoint
+ */
+export interface DatadogBillingDimensionMappingResponse {
+  data: Array<{
+    id: string;
+    type: string;
+    attributes: {
+      id: string;
+      in_app_label: string;
+      endpoints: Array<{
+        id: string;
+        status: string;
+        keys?: string[];
+      }>;
+    };
+  }>;
+}
+
+/**
+ * Clean billing dimensions mapping (processed from Datadog API)
+ */
+export interface CleanBillingDimensions {
+  [dimensionId: string]: {
+    label: string;
+    hourly_usage_keys: string[];
+  };
+}
+

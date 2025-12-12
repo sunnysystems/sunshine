@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { ServiceConfig } from '@/lib/datadog/cost-guard/types';
+import type { ServiceConfig, BillingDimension } from '@/lib/datadog/cost-guard/types';
 import { SERVICE_MAPPINGS, getServicesByCategory } from '@/lib/datadog/cost-guard/service-mapping';
 
 interface ServiceFormData {
@@ -34,6 +34,8 @@ export default function EditContractPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [billingDimensions, setBillingDimensions] = useState<BillingDimension[]>([]);
+  const [loadingDimensions, setLoadingDimensions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract tenant from pathname
@@ -49,18 +51,35 @@ export default function EditContractPage() {
   const [endDate, setEndDate] = useState('');
   const [services, setServices] = useState<Record<string, ServiceFormData>>({});
 
-  // Initialize services from mappings
+  // Load billing dimensions
+  const loadBillingDimensions = useCallback(async () => {
+    if (!tenant) return;
+
+    try {
+      setLoadingDimensions(true);
+      const response = await fetch(
+        `/api/datadog/billing-dimensions?tenant=${encodeURIComponent(tenant)}`,
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setBillingDimensions(data.dimensions || []);
+      } else {
+        // If no billing dimensions found, use empty array (fallback to SERVICE_MAPPINGS)
+        setBillingDimensions([]);
+      }
+    } catch (err) {
+      // On error, use empty array (fallback to SERVICE_MAPPINGS)
+      setBillingDimensions([]);
+    } finally {
+      setLoadingDimensions(false);
+    }
+  }, [tenant]);
+
+  // Load billing dimensions on mount
   useEffect(() => {
-    const defaultServices: Record<string, ServiceFormData> = {};
-    Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
-      defaultServices[mapping.serviceKey] = {
-        quantity: '0',
-        listPrice: '0',
-        threshold: '',
-      };
-    });
-    setServices(defaultServices);
-  }, []);
+    loadBillingDimensions();
+  }, [loadBillingDimensions]);
 
   // Load existing contract data
   const loadContract = useCallback(async () => {
@@ -95,8 +114,61 @@ export default function EditContractPage() {
             });
             setServices(servicesData);
           } else {
-            // No services, initialize with defaults
+            // No services, initialize with active billing dimensions or fallback to SERVICE_MAPPINGS
             const defaultServices: Record<string, ServiceFormData> = {};
+            const activeServiceKeys = new Set(
+              billingDimensions
+                .map((dim) => dim.mappedServiceKey)
+                .filter((key): key is string => key !== null && key !== undefined),
+            );
+
+            // Use billing dimensions if available, otherwise fallback to SERVICE_MAPPINGS
+            if (billingDimensions.length > 0 && activeServiceKeys.size > 0) {
+              // Initialize only services that are mapped from active billing dimensions
+              Array.from(activeServiceKeys).forEach((serviceKey) => {
+                if (SERVICE_MAPPINGS[serviceKey]) {
+                  defaultServices[serviceKey] = {
+                    quantity: '0',
+                    listPrice: '0',
+                    threshold: '',
+                  };
+                }
+              });
+            } else {
+              // Fallback: initialize all SERVICE_MAPPINGS
+              Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+                defaultServices[mapping.serviceKey] = {
+                  quantity: '0',
+                  listPrice: '0',
+                  threshold: '',
+                };
+              });
+            }
+            setServices(defaultServices);
+          }
+        } else {
+          // No config exists, use defaults based on billing dimensions
+          const defaultServices: Record<string, ServiceFormData> = {};
+          const activeServiceKeys = new Set(
+            billingDimensions
+              .map((dim) => dim.mappedServiceKey)
+              .filter((key): key is string => key !== null && key !== undefined),
+          );
+
+          // Use billing dimensions if available, otherwise fallback to SERVICE_MAPPINGS
+          if (billingDimensions.length > 0 && activeServiceKeys.size > 0) {
+            // Initialize only services that are mapped from active billing dimensions
+            Array.from(activeServiceKeys).forEach((serviceKey) => {
+              if (SERVICE_MAPPINGS[serviceKey]) {
+                defaultServices[serviceKey] = {
+                  quantity: '0',
+                  listPrice: '0',
+                  threshold: '',
+                };
+              }
+            });
+          } else {
+            // Fallback: initialize all SERVICE_MAPPINGS
             Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
               defaultServices[mapping.serviceKey] = {
                 quantity: '0',
@@ -104,18 +176,7 @@ export default function EditContractPage() {
                 threshold: '',
               };
             });
-            setServices(defaultServices);
           }
-        } else {
-          // No config exists, use defaults
-          const defaultServices: Record<string, ServiceFormData> = {};
-          Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
-            defaultServices[mapping.serviceKey] = {
-              quantity: '0',
-              listPrice: '0',
-              threshold: '',
-            };
-          });
           setServices(defaultServices);
           // Set default dates (current month)
           const now = new Date();
@@ -130,11 +191,14 @@ export default function EditContractPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, billingDimensions]);
 
   useEffect(() => {
-    loadContract();
-  }, [loadContract]);
+    // Only load contract after billing dimensions are loaded (or failed to load)
+    if (!loadingDimensions) {
+      loadContract();
+    }
+  }, [loadContract, loadingDimensions]);
 
   const handleSave = async () => {
     if (!tenant) return;
@@ -213,15 +277,34 @@ export default function EditContractPage() {
   };
 
   const handleReset = () => {
-    // Reset to original values
+    // Reset to original values based on active billing dimensions
     const defaultServices: Record<string, ServiceFormData> = {};
-    Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
-      defaultServices[mapping.serviceKey] = {
-        quantity: '0',
-        listPrice: '0',
-        threshold: '',
-      };
-    });
+    const activeServiceKeys = new Set(
+      billingDimensions
+        .map((dim) => dim.mappedServiceKey)
+        .filter((key): key is string => key !== null && key !== undefined),
+    );
+
+    // Use billing dimensions if available, otherwise fallback to SERVICE_MAPPINGS
+    if (billingDimensions.length > 0 && activeServiceKeys.size > 0) {
+      Array.from(activeServiceKeys).forEach((serviceKey) => {
+        if (SERVICE_MAPPINGS[serviceKey]) {
+          defaultServices[serviceKey] = {
+            quantity: '0',
+            listPrice: '0',
+            threshold: '',
+          };
+        }
+      });
+    } else {
+      Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+        defaultServices[mapping.serviceKey] = {
+          quantity: '0',
+          listPrice: '0',
+          threshold: '',
+        };
+      });
+    }
     setServices(defaultServices);
     setPlanName('Enterprise Observability');
     setBillingCycle('monthly');
@@ -478,6 +561,51 @@ export default function EditContractPage() {
     }, 0);
   }, [services]);
 
+  // Filter services based on active billing dimensions
+  const getActiveServices = useCallback(() => {
+    if (billingDimensions.length === 0) {
+      // Fallback: return all SERVICE_MAPPINGS if no billing dimensions
+      return Object.values(SERVICE_MAPPINGS);
+    }
+
+    const activeServiceKeys = new Set(
+      billingDimensions
+        .map((dim) => dim.mappedServiceKey)
+        .filter((key): key is string => key !== null && key !== undefined),
+    );
+
+    // Return only services that are mapped from active billing dimensions
+    // Also include services that are already in the form (for backward compatibility)
+    const existingServiceKeys = new Set(Object.keys(services));
+    const allActiveKeys = new Set([...activeServiceKeys, ...existingServiceKeys]);
+
+    return Object.values(SERVICE_MAPPINGS).filter((mapping) =>
+      allActiveKeys.has(mapping.serviceKey),
+    );
+  }, [billingDimensions, services]);
+
+  // Group active services by category for display
+  const activeServices = getActiveServices();
+  const servicesByCategory = useMemo(() => {
+    return {
+      infrastructure: activeServices
+        .filter((s) => s.category === 'infrastructure')
+        .sort((a, b) => a.serviceName.localeCompare(b.serviceName)),
+      apm: activeServices
+        .filter((s) => s.category === 'apm')
+        .sort((a, b) => a.serviceName.localeCompare(b.serviceName)),
+      logs: activeServices
+        .filter((s) => s.category === 'logs')
+        .sort((a, b) => a.serviceName.localeCompare(b.serviceName)),
+      observability: activeServices
+        .filter((s) => s.category === 'observability')
+        .sort((a, b) => a.serviceName.localeCompare(b.serviceName)),
+      security: activeServices
+        .filter((s) => s.category === 'security')
+        .sort((a, b) => a.serviceName.localeCompare(b.serviceName)),
+    };
+  }, [activeServices]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -488,25 +616,6 @@ export default function EditContractPage() {
       </div>
     );
   }
-
-  // Group services by category
-  const servicesByCategory = {
-    infrastructure: getServicesByCategory('infrastructure').sort((a, b) => 
-      a.serviceName.localeCompare(b.serviceName)
-    ),
-    apm: getServicesByCategory('apm').sort((a, b) => 
-      a.serviceName.localeCompare(b.serviceName)
-    ),
-    logs: getServicesByCategory('logs').sort((a, b) => 
-      a.serviceName.localeCompare(b.serviceName)
-    ),
-    observability: getServicesByCategory('observability').sort((a, b) => 
-      a.serviceName.localeCompare(b.serviceName)
-    ),
-    security: getServicesByCategory('security').sort((a, b) => 
-      a.serviceName.localeCompare(b.serviceName)
-    ),
-  };
 
   return (
     <div className="space-y-8">
@@ -647,8 +756,10 @@ export default function EditContractPage() {
         </CardContent>
       </Card>
 
-      {/* Services by Category */}
-      {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+      {/* Services by Category - Only show categories with active services */}
+      {Object.entries(servicesByCategory)
+        .filter(([, categoryServices]) => categoryServices.length > 0)
+        .map(([category, categoryServices]) => (
         <Card key={category} className="border-border/60 bg-card/95 shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">

@@ -12,6 +12,12 @@ import {
 import { authOptions } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { validateOwnerOrAdmin } from '@/lib/datadog/cost-guard/auth';
+import {
+  fetchBillingDimensions,
+  storeBillingDimensions,
+} from '@/lib/datadog/cost-guard/billing-dimensions';
+import { mapAllDimensionsToServices } from '@/lib/datadog/cost-guard/billing-dimensions-mapper';
+import { debugApi, logError } from '@/lib/debug';
 
 /**
  * POST: Save/update Datadog credentials for an organization
@@ -121,6 +127,46 @@ export async function POST(request: NextRequest) {
       },
       request,
     });
+
+    // Fetch and store billing dimensions asynchronously (don't block response)
+    // This runs in the background and errors are logged but don't affect the response
+    (async () => {
+      try {
+        debugApi('Fetching billing dimensions after credential save', {
+          organizationId: org.id,
+          timestamp: new Date().toISOString(),
+        });
+
+        const credentials = { apiKey, appKey };
+        const site = 'datadoghq.com'; // TODO: Detect site from credentials or make configurable
+
+        // Fetch billing dimensions from Datadog API
+        const dimensions = await fetchBillingDimensions(credentials, site);
+
+        // Map dimensions to service keys
+        const mappedDimensions = mapAllDimensionsToServices(dimensions);
+
+        // Store in database
+        await storeBillingDimensions(org.id, dimensions, mappedDimensions);
+
+        debugApi('Billing dimensions fetched and stored successfully', {
+          organizationId: org.id,
+          dimensionCount: Object.keys(dimensions).length,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Log error but don't fail the credential save
+        logError(
+          error instanceof Error ? error : new Error(String(error)),
+          'Error fetching billing dimensions after credential save',
+        );
+        debugApi('Failed to fetch billing dimensions (non-blocking)', {
+          organizationId: org.id,
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        });
+      }
+    })();
 
     return NextResponse.json(
       {
