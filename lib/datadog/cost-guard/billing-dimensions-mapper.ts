@@ -7,12 +7,14 @@ import type { CleanBillingDimensions } from './types';
  * Compares hourly_usage_keys with usageType and productFamily of services
  * @param dimensionId - Billing dimension ID (e.g., "infra_host")
  * @param hourlyUsageKeys - Array of hourly usage keys (e.g., ["host_count"])
+ * @param label - Optional label of the dimension (e.g., "LLM Spans")
  * @param serviceMappings - Service mappings to match against
  * @returns Service key if matched, null otherwise
  */
 export function mapDimensionToService(
   dimensionId: string,
   hourlyUsageKeys: string[],
+  label?: string,
   serviceMappings: Record<string, ServiceMapping> = SERVICE_MAPPINGS,
 ): string | null {
   // Try to match by dimension ID first (exact match)
@@ -24,6 +26,17 @@ export function mapDimensionToService(
       timestamp: new Date().toISOString(),
     });
     return dimensionId;
+  }
+
+  // Try to match by label (high priority after dimension ID match)
+  if (label === 'LLM Spans') {
+    debugApi('Mapped dimension by label', {
+      dimensionId,
+      label,
+      serviceKey: 'llm_observability',
+      timestamp: new Date().toISOString(),
+    });
+    return 'llm_observability';
   }
 
   // Try to match by hourly_usage_keys
@@ -139,6 +152,7 @@ export function mapAllDimensionsToServices(
     mappings[dimensionId] = mapDimensionToService(
       dimensionId,
       dimensionData.hourly_usage_keys,
+      dimensionData.label,
     );
   }
 

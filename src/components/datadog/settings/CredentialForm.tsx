@@ -212,10 +212,20 @@ export function CredentialForm({ tenant }: CredentialFormProps) {
             <Alert>
               <AlertCircle className="h-4 w-4 animate-pulse" />
               <AlertTitle>
-                {t('datadog.credentials.validatingTitle') || 'Validating credentials'}
+                {(() => {
+                  const translation = t('datadog.credentials.validatingTitle');
+                  return translation === 'datadog.credentials.validatingTitle'
+                    ? 'Validating credentials'
+                    : translation;
+                })()}
               </AlertTitle>
               <AlertDescription>
-                {t('datadog.credentials.validatingMessage') || 'Checking credentials with Datadog API to ensure they are valid...'}
+                {(() => {
+                  const translation = t('datadog.credentials.validatingMessage');
+                  return translation === 'datadog.credentials.validatingMessage'
+                    ? 'Checking credentials with Datadog API to ensure they are valid...'
+                    : translation;
+                })()}
               </AlertDescription>
             </Alert>
           )}
