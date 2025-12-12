@@ -24,9 +24,14 @@ import {
   extractTimeseriesData,
 } from '@/lib/datadog/cost-guard/calculations';
 import { getServiceMapping, getUsageTypeFilter, getAggregationType } from '@/lib/datadog/cost-guard/service-mapping';
+import { debugApi } from '@/lib/debug';
 import { initProgress, updateProgress } from '@/lib/datadog/cost-guard/progress';
 import { supabaseAdmin } from '@/lib/supabase';
 import { validateOwnerOrAdmin } from '@/lib/datadog/cost-guard/auth';
+import { getAllDimensionsForOrganization } from '@/lib/datadog/cost-guard/billing-dimensions';
+import { getDimensionMapping } from '@/lib/datadog/cost-guard/dimension-mapping';
+import { extractUsageByDimensionKeys } from '@/lib/datadog/cost-guard/calculations';
+import { getUsageDataByDimension } from '@/lib/datadog/client';
 
 /**
  * GET: Retrieve summary data (contracted spend, projected spend, utilization, runway, overage risk)
@@ -150,21 +155,38 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate date range: Datadog always bills monthly (day 1 to last day of month)
-    // Always aggregate from day 1 of current month to today (or end of month if passed)
+    // OLD LOGIC: Always aggregate from day 1 of current month to today (or end of month if passed)
+    // This was causing too many API requests as it would fetch current day data every hour
     // Use UTC to avoid timezone issues
+    // const now = new Date();
+    // const nowUTC = new Date(Date.UTC(
+    //   now.getUTCFullYear(),
+    //   now.getUTCMonth(),
+    //   now.getUTCDate(),
+    //   now.getUTCHours(),
+    //   0, // Round down to the current hour
+    //   0,
+    //   0
+    // ));
+    // 
+    // // End date should not be in the future - use current hour in UTC
+    // const endDate = nowUTC;
+    
+    // NEW LOGIC: Always use d-1 (yesterday at 23:59:59) to reduce API requests
+    // This ensures we only fetch complete days and avoid frequent cache invalidations
     const now = new Date();
-    const nowUTC = new Date(Date.UTC(
+    const yesterdayUTC = new Date(Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
-      now.getUTCDate(),
-      now.getUTCHours(),
-      0, // Round down to the current hour
-      0,
-      0
+      now.getUTCDate() - 1, // d-1 (yesterday)
+      23, // Last hour of yesterday
+      59,
+      59,
+      999
     ));
     
-    // End date should not be in the future - use current hour in UTC
-    const endDate = nowUTC;
+    // End date should be d-1 (yesterday)
+    const endDate = yesterdayUTC;
     
     // Start from day 1 of the current month in UTC
     const startDate = new Date(Date.UTC(
@@ -190,8 +212,190 @@ export async function GET(request: NextRequest) {
       // Initialize progress tracking
       initProgress(tenant, 'summary', services.length);
 
+      // Get all dimensions for this organization (for dimension-based processing)
+      const allDimensions = await getAllDimensionsForOrganization(organizationId);
+      const dimensionMap = new Map(allDimensions.map(d => [d.dimensionId, d]));
+
       // Fetch usage for each service sequentially to track progress
       for (const service of services) {
+        // Check if service has dimension_id (new approach)
+        if (service.dimension_id) {
+          const dimension = dimensionMap.get(service.dimension_id);
+          if (!dimension) {
+            // Dimension not found, skip but include in contractedSpend
+            updateProgress(tenant, 'summary', service.service_name);
+            continue;
+          }
+
+          try {
+            const dimensionMapping = getDimensionMapping(dimension.dimensionId, dimension.hourlyUsageKeys);
+            const usageData = await getUsageDataByDimension(
+              credentials,
+              dimension.dimensionId,
+              dimensionMapping.productFamily,
+              startHr,
+              endHr,
+              organizationId,
+            );
+
+            if (usageData?.error) {
+              updateProgress(tenant, 'summary', service.service_name);
+              continue;
+            }
+
+            // Extract usage using dimension keys
+            const usage = extractUsageByDimensionKeys(
+              usageData,
+              dimension.hourlyUsageKeys,
+              dimensionMapping.aggregationType,
+            );
+            const committed = Number(service.quantity) || 0;
+            const listPrice = Number(service.list_price) || 0;
+
+            // Calculate cost: usage * list_price
+            const serviceCost = usage * listPrice;
+            totalCurrentCost += serviceCost;
+
+            // Extract timeseries for trend and projection
+            const timeseriesData = extractTimeseriesData(usageData);
+
+            // Create filter function for hourly_usage_keys
+            const keysSet = new Set(dimension.hourlyUsageKeys.map(k => k.toLowerCase()));
+            const usageTypeFilter = (usageType: string): boolean => {
+              const usageTypeLower = usageType.toLowerCase();
+              return Array.from(keysSet).some(key => usageTypeLower === key || usageTypeLower.includes(key));
+            };
+
+            const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
+            allTrends.push(...trend);
+
+            // Calculate projected usage for this dimension
+            const dailyValues = extractDailyAbsoluteValues(
+              timeseriesData,
+              usageTypeFilter,
+              dimensionMapping.aggregationType,
+            );
+            const projectedUsage = calculateProjection(
+              dailyValues,
+              usage,
+              dimensionMapping.aggregationType,
+              yesterdayUTC,
+            );
+            
+            // Calculate projected cost
+            const projectedServiceCost = projectedUsage * listPrice;
+            totalProjectedCost += projectedServiceCost;
+
+            // Add to threshold
+            const threshold = service.threshold !== null && service.threshold !== undefined
+              ? Number(service.threshold) * listPrice
+              : committed * 0.9 * listPrice;
+            totalThreshold += threshold;
+
+            // Update progress after successful processing
+            updateProgress(tenant, 'summary', service.service_name);
+          } catch (error) {
+            // If it's a rate limit error, propagate it immediately
+            if (error instanceof DatadogRateLimitError) {
+              throw error;
+            }
+            // Log error but continue with other services
+            updateProgress(tenant, 'summary', service.service_name);
+          }
+          continue; // Skip to next service
+        }
+
+        // Fallback: Try to find dimension via mapped_service_key
+        // Build dimension map by mapped_service_key for lookup
+        const dimensionByServiceKey = new Map(
+          allDimensions
+            .filter(d => d.mappedServiceKey)
+            .map(d => [d.mappedServiceKey!, d])
+        );
+
+        let dimension = service.service_key ? dimensionByServiceKey.get(service.service_key) : null;
+        
+        // If we found a dimension, use it (preferred approach)
+        if (dimension) {
+          try {
+            const dimensionMapping = getDimensionMapping(dimension.dimensionId, dimension.hourlyUsageKeys);
+            const usageData = await getUsageDataByDimension(
+              credentials,
+              dimension.dimensionId,
+              dimensionMapping.productFamily,
+              startHr,
+              endHr,
+              organizationId,
+            );
+
+            if (usageData?.error) {
+              updateProgress(tenant, 'summary', service.service_name);
+              continue;
+            }
+
+            // Extract usage using dimension keys
+            const usage = extractUsageByDimensionKeys(
+              usageData,
+              dimension.hourlyUsageKeys,
+              dimensionMapping.aggregationType,
+            );
+            const committed = Number(service.quantity) || 0;
+            const listPrice = Number(service.list_price) || 0;
+
+            // Calculate cost: usage * list_price
+            const serviceCost = usage * listPrice;
+            totalCurrentCost += serviceCost;
+
+            // Extract timeseries for trend and projection
+            const timeseriesData = extractTimeseriesData(usageData);
+
+            // Create filter function for hourly_usage_keys
+            const keysSet = new Set(dimension.hourlyUsageKeys.map(k => k.toLowerCase()));
+            const usageTypeFilter = (usageType: string): boolean => {
+              const usageTypeLower = usageType.toLowerCase();
+              return Array.from(keysSet).some(key => usageTypeLower === key || usageTypeLower.includes(key));
+            };
+
+            const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
+            allTrends.push(...trend);
+
+            // Calculate projected usage for this dimension
+            const dailyValues = extractDailyAbsoluteValues(
+              timeseriesData,
+              usageTypeFilter,
+              dimensionMapping.aggregationType,
+            );
+            const projectedUsage = calculateProjection(
+              dailyValues,
+              usage,
+              dimensionMapping.aggregationType,
+              yesterdayUTC,
+            );
+            
+            // Calculate projected cost
+            const projectedServiceCost = projectedUsage * listPrice;
+            totalProjectedCost += projectedServiceCost;
+
+            // Add to threshold
+            const threshold = service.threshold !== null && service.threshold !== undefined
+              ? Number(service.threshold) * listPrice
+              : committed * 0.9 * listPrice;
+            totalThreshold += threshold;
+
+            // Update progress after successful processing
+            updateProgress(tenant, 'summary', service.service_name);
+          } catch (error) {
+            // If it's a rate limit error, propagate it immediately
+            if (error instanceof DatadogRateLimitError) {
+              throw error;
+            }
+            // Log error but continue with other services
+            updateProgress(tenant, 'summary', service.service_name);
+          }
+          continue; // Skip to next service
+        }
+
+        // Final fallback: Use legacy service_key approach (deprecated)
         const mapping = getServiceMapping(service.service_key);
         if (!mapping) {
           // Update progress after processing (even if no mapping)
@@ -245,6 +449,7 @@ export async function GET(request: NextRequest) {
           const timeseriesData = extractTimeseriesData(usageData);
 
           // Get usage_type filter for this specific service to ensure trend only includes this service's data
+          // NOTE: This is deprecated - prefer using hourly_usage_keys from dimension mapping
           const usageTypeFilter = getUsageTypeFilter(service.service_key);
           const trend = extractTrendFromTimeseries(timeseriesData, 7, usageTypeFilter);
           allTrends.push(...trend);
@@ -252,7 +457,7 @@ export async function GET(request: NextRequest) {
           // Calculate projected usage for this service
           const aggregationType = getAggregationType(service.service_key);
           const dailyValues = extractDailyAbsoluteValues(timeseriesData, usageTypeFilter, aggregationType);
-          const projectedUsage = calculateProjection(dailyValues, usage, aggregationType, nowUTC);
+          const projectedUsage = calculateProjection(dailyValues, usage, aggregationType, yesterdayUTC);
           
           // Calculate projected cost for this service
           let projectedServiceCost = 0;
@@ -399,7 +604,7 @@ export async function GET(request: NextRequest) {
     allDailyValues.sort((a, b) => a.date.localeCompare(b.date));
 
     // Calculate projected usage using new method (SUM as default for fallback)
-    const projectedUsage = calculateProjection(allDailyValues, totalCurrentUsage, 'SUM', nowUTC);
+    const projectedUsage = calculateProjection(allDailyValues, totalCurrentUsage, 'SUM', yesterdayUTC);
     
     // For fallback, we don't have individual service prices, so we estimate based on current cost ratio
     // This is a simplified approach - ideally we'd have service-level data

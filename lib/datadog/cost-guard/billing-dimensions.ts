@@ -210,6 +210,17 @@ export async function getBillingDimensions(
 }
 
 /**
+ * Get all billing dimensions for an organization (for auto-discovery)
+ * @param organizationId - Organization ID
+ * @returns Array of billing dimensions
+ */
+export async function getAllDimensionsForOrganization(
+  organizationId: string,
+): Promise<BillingDimension[]> {
+  return await getBillingDimensions(organizationId);
+}
+
+/**
  * Delete all billing dimensions for an organization
  * @param organizationId - Organization ID
  */

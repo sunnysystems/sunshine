@@ -10,11 +10,15 @@ import { debugApi } from '@/lib/debug';
 export interface ServiceMapping {
   serviceKey: string;
   serviceName: string;
-  productFamily: string; // For API v2
-  usageType?: string; // Specific usage_type within product_family
-  unit: string;
-  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
-  apiEndpoint: string; // Endpoint da API
+  productFamily: string; // For API v2 (deprecated: now inferred from dimension_id)
+  usageType?: string; // Specific usage_type within product_family (deprecated: now uses hourly_usage_keys)
+  unit: string; // Kept for metadata, but unit is now inferred from dimension
+  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security'; // Kept for metadata
+  apiEndpoint: string; // Endpoint da API (deprecated: always /api/v2/usage/hourly_usage)
+  /**
+   * @deprecated This function is no longer used. Services now use dimension_id and hourly_usage_keys
+   * from the datadog_billing_dimensions table. The extractUsageByDimensionKeys function is used instead.
+   */
   extractUsage: (apiResponse: DatadogAPIResponse) => number; // Function to extract usage from API response
 }
 
@@ -1123,6 +1127,13 @@ export function getAggregationType(serviceKey: string): 'MAX' | 'SUM' {
  * Get usage_type filter function for a specific service
  * Returns a filter function that matches the same usage_type conditions used by the service's extractUsage function
  * This ensures trend data only includes measurements for the specific service, not consolidated metrics
+ * 
+ * @deprecated This function uses hardcoded logic and should be replaced with hourly_usage_keys from dimension mapping.
+ * When a service has a dimension_id, use the hourly_usage_keys from the dimension instead of this function.
+ * This function is kept for backward compatibility with services that don't have dimension_id mapped yet.
+ * 
+ * @param serviceKey - The service key to get filter for
+ * @returns Filter function or undefined if no specific filter is needed
  */
 export function getUsageTypeFilter(serviceKey: string): ((usageType: string) => boolean) | undefined {
   switch (serviceKey) {

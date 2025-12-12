@@ -8,7 +8,7 @@ interface MetricUsageCardProps {
   name: string;
   unit: string;
   usage: number | string; // Can be number or "N/A" for errors
-  limit: number;
+  limit: number; // 0 when no contract configured
   threshold?: number | null;
   projected: number | string; // Can be number or "N/A" for errors
   trend: number[]; // Kept for backward compatibility
@@ -19,6 +19,7 @@ interface MetricUsageCardProps {
   daysRemaining?: number; // Days remaining in current month
   statusBadge: React.ReactNode;
   actionLabel: string;
+  hasContract?: boolean; // Whether there's a contract configured
 }
 
 const statusBarColors = {
@@ -42,17 +43,18 @@ export function MetricUsageCard({
   daysRemaining,
   statusBadge,
   actionLabel,
+  hasContract = true, // Default to true for backward compatibility
 }: MetricUsageCardProps) {
   const [hoveredDay, setHoveredDay] = useState<{ date: string; value: number; isForecast: boolean } | null>(null);
   
   const hasError = typeof usage === 'string' || typeof projected === 'string';
   const usageValue = typeof usage === 'string' ? 0 : usage;
   const projectedValue = typeof projected === 'string' ? 0 : projected;
-  
-  const usagePct = hasError ? 0 : Math.min((usageValue / limit) * 100, 120);
-  const projectedPct = hasError ? 0 : Math.min((projectedValue / limit) * 100, 120);
+  const hasLimit = hasContract && limit > 0;
+  const usagePct = hasError || !hasLimit ? 0 : Math.min((usageValue / limit) * 100, 120);
+  const projectedPct = hasError || !hasLimit ? 0 : Math.min((projectedValue / limit) * 100, 120);
   const thresholdPct =
-    threshold && limit > 0 ? Math.min((threshold / limit) * 100, 120) : null;
+    hasLimit && threshold && limit > 0 ? Math.min((threshold / limit) * 100, 120) : null;
 
   return (
     <Card className="h-full border-border/60 bg-card/95 shadow-sm">
@@ -72,9 +74,10 @@ export function MetricUsageCard({
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Usage</span>
             <span className="font-medium">
-              {typeof usage === 'string' ? usage : formatNumberWithDecimals(usage) || '0'} / {formatNumberWithDecimals(limit) || '0'}
+              {typeof usage === 'string' ? usage : formatNumberWithDecimals(usage) || '0'} / {hasLimit ? formatNumberWithDecimals(limit) || '0' : 'N/A'}
             </span>
           </div>
+          {hasLimit && (
           <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
             {!hasError && (
               <>
@@ -104,12 +107,20 @@ export function MetricUsageCard({
             ) : null}
             <div className="absolute inset-0 rounded-full ring-1 ring-inset ring-border/50" />
           </div>
+          )}
+          {!hasLimit && (
+            <div className="text-xs text-muted-foreground italic py-2">
+              Contract not configured - no limits set
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>Projected {typeof projected === 'string' ? projected : projected.toLocaleString()}</span>
-            {threshold ? (
+            {hasLimit && threshold ? (
               <span>Threshold {threshold.toLocaleString()}</span>
-            ) : (
+            ) : hasLimit ? (
               <span>No threshold</span>
+            ) : (
+              <span>No contract</span>
             )}
           </div>
         </div>
@@ -147,7 +158,7 @@ export function MetricUsageCard({
                 return (
                   <>
                     {/* Reference lines */}
-                    {limit > 0 && (
+                    {hasLimit && limit > 0 && (
                       <div
                         className="absolute left-0 right-0 h-0.5 bg-red-500/60 z-10"
                         style={{
@@ -156,7 +167,7 @@ export function MetricUsageCard({
                         title={`Limit: ${limit.toLocaleString()}`}
                       />
                     )}
-                    {effectiveThreshold > 0 && (
+                    {hasLimit && effectiveThreshold > 0 && (
                       <div
                         className="absolute left-0 right-0 h-0.5 bg-amber-500/60 z-10"
                         style={{
@@ -233,7 +244,7 @@ export function MetricUsageCard({
                 return (
                   <>
                     {/* Reference lines */}
-                    {limit > 0 && (
+                    {hasLimit && limit > 0 && (
                       <div
                         className="absolute left-0 right-0 h-0.5 bg-red-500/60 z-10"
                         style={{
@@ -242,7 +253,7 @@ export function MetricUsageCard({
                         title={`Limit: ${limit.toLocaleString()}`}
                       />
                     )}
-                    {effectiveThreshold > 0 && (
+                    {hasLimit && effectiveThreshold > 0 && (
                       <div
                         className="absolute left-0 right-0 h-0.5 bg-amber-500/60 z-10"
                         style={{

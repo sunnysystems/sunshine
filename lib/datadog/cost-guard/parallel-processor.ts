@@ -1,5 +1,7 @@
 /**
  * Parallel processing utilities for Cost Guard
+ * NOTE: This function is deprecated in favor of processing services with dimensions directly.
+ * All services should have dimension_id and use dimension-based processing.
  */
 
 import type { ServiceConfig, ServiceUsage, DatadogCredentials } from './types';
@@ -7,6 +9,8 @@ import type { ServiceMapping } from './service-mapping';
 import { processServiceUsage, ProcessServiceParams } from './service-processor';
 import { createErrorServiceUsage } from './service-utils';
 import { getServiceMapping } from './service-mapping';
+import { getAllDimensionsForOrganization } from './billing-dimensions';
+import { getDimensionMapping } from './dimension-mapping';
 import { updateProgress } from './progress';
 import { DatadogRateLimitError } from '@/lib/datadog/client';
 import { debugApi } from '@/lib/debug';
@@ -19,6 +23,8 @@ export interface ProcessServicesInParallelParams {
   organizationId: string;
   tenant: string;
   concurrency?: number; // Number of parallel requests (default: 3)
+  dimensions?: Map<string, any>; // Optional: Map of dimensionId -> BillingDimension
+  dimensionByServiceKey?: Map<string, any>; // Optional: Map of service_key -> BillingDimension
 }
 
 /**
@@ -36,7 +42,23 @@ export async function processServicesInParallel(
     organizationId,
     tenant,
     concurrency = 3,
+    dimensions,
+    dimensionByServiceKey,
   } = params;
+
+  // Load dimensions if not provided
+  let dimensionMap = dimensions;
+  let serviceKeyToDimensionMap = dimensionByServiceKey;
+  
+  if (!dimensionMap || !serviceKeyToDimensionMap) {
+    const allDimensions = await getAllDimensionsForOrganization(organizationId);
+    dimensionMap = new Map(allDimensions.map(d => [d.dimensionId, d]));
+    serviceKeyToDimensionMap = new Map(
+      allDimensions
+        .filter(d => d.mappedServiceKey)
+        .map(d => [d.mappedServiceKey!, d])
+    );
+  }
 
   const serviceUsages: ServiceUsage[] = [];
   const serviceQueue = [...services];
@@ -47,31 +69,43 @@ export async function processServicesInParallel(
     // Start new requests up to concurrency limit
     while (activePromises.size < concurrency && serviceQueue.length > 0) {
       const service = serviceQueue.shift()!;
-      const mapping = getServiceMapping(service.service_key);
+      
+      // Get dimension - either directly from dimension_id or via mapped_service_key
+      let dimension = service.dimension_id ? dimensionMap!.get(service.dimension_id) : null;
+      if (!dimension && service.service_key) {
+        dimension = serviceKeyToDimensionMap!.get(service.service_key) || null;
+      }
 
-      if (!mapping) {
-        debugApi(`No mapping found for service: ${service.service_key}`, {
+      // Skip services without dimension_id
+      if (!dimension) {
+        debugApi(`Skipping service without dimension_id: ${service.service_key}`, {
           serviceKey: service.service_key,
           serviceName: service.service_name,
           timestamp: new Date().toISOString(),
         });
-        serviceUsages.push(createErrorServiceUsage(service, null, 'No mapping found for service'));
+        const mapping = getServiceMapping(service.service_key);
+        serviceUsages.push(createErrorServiceUsage(
+          service, 
+          mapping, 
+          'Service does not have dimension_id mapped'
+        ));
         updateProgress(tenant, 'metrics', service.service_name);
         continue;
       }
 
-      // Skip API call for code_security_bundle (not available via API)
-      if (service.service_key === 'code_security_bundle') {
-        serviceUsages.push(createErrorServiceUsage(service, mapping, 'Service not available via API'));
-        updateProgress(tenant, 'metrics', service.service_name);
-        continue;
-      }
+      const dimensionMapping = getDimensionMapping(
+        dimension.dimensionId,
+        dimension.hourlyUsageKeys
+      );
+      const mapping = getServiceMapping(service.service_key); // Optional, for metadata
 
       // Create promise for this service
       const servicePromise = (async (): Promise<ServiceUsage> => {
         try {
           const serviceUsage = await processServiceUsage({
             service,
+            dimension,
+            dimensionMapping,
             mapping,
             credentials,
             startHr,
@@ -95,6 +129,7 @@ export async function processServicesInParallel(
 
           debugApi(`Error processing service ${service.service_key}`, {
             serviceKey: service.service_key,
+            dimensionId: dimension.dimensionId,
             error: error instanceof Error ? error.message : String(error),
             timestamp: new Date().toISOString(),
           });

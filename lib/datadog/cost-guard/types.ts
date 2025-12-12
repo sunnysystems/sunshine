@@ -47,14 +47,19 @@ export interface ServiceConfig {
   id?: string;
   serviceKey: string;
   serviceName: string;
-  productFamily: string;
-  usageType?: string;
+  productFamily: string; // Deprecated: now inferred from dimension_id
+  usageType?: string; // Deprecated: now uses hourly_usage_keys from dimension
   quantity: number;
   listPrice: number;
-  unit: string;
+  unit: string; // Kept for backward compatibility, but unit is now inferred from dimension
   committedValue: number; // quantity * listPrice
   threshold?: number | null;
-  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security';
+  category: 'infrastructure' | 'apm' | 'logs' | 'observability' | 'security'; // Kept for backward compatibility
+  /**
+   * Reference to dimension_id from datadog_billing_dimensions.
+   * Required for all services - services without dimension_id will not be processed.
+   */
+  dimensionId?: string | null;
 }
 
 /**
@@ -79,6 +84,36 @@ export interface ServiceUsage {
   utilization: number; // percentage
   hasError?: boolean; // Indicates if there was an error fetching data
   error?: string | null; // Error message if hasError is true
+  dimensionId?: string | null; // Reference to dimension_id from datadog_billing_dimensions
+}
+
+/**
+ * Usage data for a billing dimension (new primary approach)
+ * Similar to ServiceUsage but uses dimension_id as primary key
+ */
+export interface DimensionUsage {
+  dimensionId: string; // Chave primária
+  label: string; // Do datadog_billing_dimensions
+  usage: number;
+  committed: number; // 0 quando não há contrato
+  threshold?: number | null; // null quando não há contrato
+  projected: number;
+  trend: number[];
+  dailyValues?: Array<{ date: string; value: number }>;
+  dailyForecast?: Array<{ date: string; value: number }>;
+  monthlyDays?: Array<{ date: string; value: number; isForecast: boolean }>;
+  daysElapsed?: number;
+  daysRemaining?: number;
+  status: 'ok' | 'watch' | 'critical'; // Sempre 'ok' quando não há contrato
+  category: string; // Inferido do dimension ou mapeado
+  unit: string; // Do dimension ou mapeado
+  utilization: number; // 0 quando não há contrato
+  hasContract: boolean; // Flag indicando se há contrato configurado
+  // Backward compatibility
+  serviceKey?: string | null; // Opcional, para transição
+  serviceName?: string; // Alias para label
+  hasError?: boolean;
+  error?: string | null;
 }
 
 export interface ContractConfig {

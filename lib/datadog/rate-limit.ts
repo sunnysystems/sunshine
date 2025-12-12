@@ -194,9 +194,21 @@ export async function checkAndWaitForRateLimit(
   }
 
   // Check if we need to wait
+  // If remaining is 0, we've hit the rate limit and must wait until reset
   // Be more conservative: wait if remaining is 1 or less to avoid hitting the limit
   // This gives us a buffer to avoid 429 errors
   if (rateLimitInfo.remaining <= 1) {
+    // If remaining is 0, we've hit the limit - all requests must stop
+    if (rateLimitInfo.remaining === 0) {
+      debugApi('Rate limit hit (remaining = 0) - blocking all requests until reset', {
+        rateLimitName,
+        remaining: rateLimitInfo.remaining,
+        limit: rateLimitInfo.limit,
+        reset: rateLimitInfo.reset,
+        period: rateLimitInfo.period,
+        timestamp: new Date().toISOString(),
+      });
+    }
     // Calculate wait time based on reset value
     // If reset is provided, use it; otherwise use period as fallback
     const waitTime = rateLimitInfo.reset > 0

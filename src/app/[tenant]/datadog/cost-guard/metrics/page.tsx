@@ -32,7 +32,7 @@ const metricLabels = {
 } as const;
 
 interface MetricConfig {
-  key: string; // Can be a metricLabels key or a service key
+  key: string; // Can be a metricLabels key, service key, or dimension_id
   usage: number;
   committed: number;
   threshold?: number | null;
@@ -40,10 +40,14 @@ interface MetricConfig {
   trend: number[];
   status: Status;
   category: MetricCategory;
-  // Optional service-specific fields
+  // Optional service-specific fields (backward compatibility)
   serviceName?: string;
   serviceKey?: string;
   unit?: string;
+  // Dimension-specific fields (new approach)
+  dimensionId?: string;
+  label?: string; // Label from dimension (preferred over serviceName)
+  hasContract?: boolean; // Whether there's a contract configured
   // Daily values and forecast data
   dailyValues?: Array<{ date: string; value: number }>;
   dailyForecast?: Array<{ date: string; value: number }>;
@@ -108,23 +112,10 @@ export default function CostGuardMetricsPage() {
       setRetryAfter(undefined);
       setProgress({ progress: 0, total: 0, completed: 0, current: '' });
 
-      // First, check if contract exists
-      const contractRes = await fetch(`/api/datadog/cost-guard/contract?tenant=${encodeURIComponent(tenant)}`);
+      // Note: We no longer require a contract to view metrics
+      // The API supports auto-discovery and will return metrics for all dimensions
+      // even without a contract configured
       
-      if (!contractRes.ok) {
-        const errorText = await contractRes.text().catch(() => t('datadog.costGuard.errors.fetchContract'));
-        throw new Error(errorText || t('datadog.costGuard.errors.fetchContract'));
-      }
-
-      const contract = await contractRes.json();
-
-      // If no contract exists, show appropriate message
-      if (!contract.config) {
-        setError('contractRequired');
-        setLoading(false);
-        return;
-      }
-
       // Clear any existing polling before starting new one
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
@@ -298,13 +289,48 @@ export default function CostGuardMetricsPage() {
       
       // Handle both services (new format) and metrics (old format)
       if (data.services && Array.isArray(data.services) && data.services.length > 0) {
+        // Debug: Log first few services to see what we're receiving
+        console.log('Services from API (first 3):', data.services.slice(0, 3).map((s: any) => ({
+          dimensionId: s.dimensionId,
+          serviceKey: s.serviceKey,
+          serviceName: s.serviceName,
+          label: s.label,
+        })));
+        
         // Convert services to metrics format for backward compatibility
-        // Use serviceKey as a unique identifier, and serviceName for display
-        const servicesAsMetrics = data.services.map((service: any) => {
+        // Use dimensionId or serviceKey as a unique identifier, and label/serviceName for display
+        const servicesAsMetrics = data.services.map((service: any, serviceIndex: number) => {
+          // Use dimensionId as key if available, otherwise use serviceKey, then serviceName, finally use index
+          const primaryKey = service.dimensionId 
+            || service.serviceKey 
+            || (service.serviceName ? `service_${service.serviceName.toLowerCase().replace(/\s+/g, '_')}` : null)
+            || `service_${serviceIndex}`;
+          
+          // Use label from dimension if available, otherwise use serviceName, fallback to a descriptive name
+          // IMPORTANT: The API should return service.label or service.serviceName (which is set to label in API)
+          // If neither is present, something is wrong with the API response
+          const displayName = service.label 
+            || service.serviceName 
+            || (service.dimensionId ? `Dimension ${service.dimensionId}` : null)
+            || (service.serviceKey ? `Service ${service.serviceKey}` : null)
+            || `Service ${serviceIndex + 1}`;
+          
+          // Debug: Log if we're using fallback names
+          if (!service.label && !service.serviceName) {
+            console.warn(`Service ${serviceIndex} missing label and serviceName:`, {
+              dimensionId: service.dimensionId,
+              serviceKey: service.serviceKey,
+              allKeys: Object.keys(service),
+            });
+          }
+          
           return {
-            key: service.serviceKey || `service_${service.serviceName?.toLowerCase().replace(/\s+/g, '_')}` || 'unknown',
+            key: primaryKey,
             serviceKey: service.serviceKey,
-            serviceName: service.serviceName,
+            serviceName: service.serviceName || service.label || displayName, // Ensure serviceName is always set
+            dimensionId: service.dimensionId,
+            label: service.label || service.serviceName || displayName, // Preserve label from API, fallback to serviceName, then displayName
+            hasContract: service.hasContract !== undefined ? service.hasContract : (service.committed > 0),
             usage: service.usage || 0,
             committed: service.committed || 0,
             threshold: service.threshold ?? null,
@@ -417,17 +443,35 @@ export default function CostGuardMetricsPage() {
       // Map category from service format to page format
       const mappedCategory = categoryMap[metric.category] || 'logs';
       
+      // Use dimensionId as key if available, otherwise use serviceKey or key
+      const primaryKey = (metric as any).dimensionId || metric.serviceKey || metric.key;
+      
+      // Use label from dimension if available, otherwise use serviceName, fallback to descriptive name
+      const displayName = (metric as any).label 
+        || metric.serviceName 
+        || ((metric as any).dimensionId ? `Dimension ${(metric as any).dimensionId}` : null)
+        || (metric.serviceKey ? `Service ${metric.serviceKey}` : null)
+        || primaryKey;
+      
       return {
-        key: metric.key as keyof typeof metricLabels,
+        key: primaryKey,
         usage: metric.usage || 0,
-        committed: metric.committed || 1000,
+        committed: metric.committed || 0, // 0 when no contract
         threshold: metric.threshold ?? null,
         projected: metric.projected || metric.usage || 0,
         trend: metric.trend || [],
         status: metric.status || 'ok',
         category: mappedCategory,
-        // Preserve service data for rendering
-        ...(metric.serviceName && { serviceName: metric.serviceName, serviceKey: metric.serviceKey, unit: metric.unit }),
+        // Preserve service data for rendering (backward compatibility)
+        ...(metric.serviceName && { serviceName: metric.serviceName, serviceKey: metric.serviceKey }),
+        // Dimension data (new approach)
+        ...((metric as any).dimensionId && { 
+          dimensionId: (metric as any).dimensionId,
+        }),
+        // Always include label for display - prioritize existing label, then serviceName, then calculated displayName
+        label: (metric as any).label || metric.serviceName || displayName,
+        unit: metric.unit,
+        hasContract: (metric as any).hasContract !== undefined ? (metric as any).hasContract : (metric.committed > 0),
         // Preserve daily values and forecast data
         dailyValues: (metric as any).dailyValues,
         dailyForecast: (metric as any).dailyForecast,
@@ -446,14 +490,17 @@ export default function CostGuardMetricsPage() {
   const tableRows: MetricTableRow[] = useMemo(
     () =>
       filteredMetrics.map((metric) => {
-        // Check if this is a service (has serviceName) or a legacy metric
+        // Check if this is a dimension (has dimensionId/label) or service (has serviceName) or legacy metric
+        const isDimension = (metric as any).dimensionId || (metric as any).label;
         const isService = (metric as any).serviceName;
-        const labelBase = isService ? null : metricLabels[metric.key];
+        const labelBase = (isDimension || isService) ? null : metricLabels[metric.key];
         
-        // Use serviceName if available, otherwise use translation
-        const metricName = isService 
-          ? (metric as any).serviceName 
-          : (labelBase ? t(`${labelBase}.label`) : metric.key);
+        // Use label (from dimension) if available, then serviceName, otherwise use translation
+        // Prioritize label, then serviceName, then translation, finally key
+        const metricName = (metric as any).label 
+          || (metric as any).serviceName
+          || (labelBase ? t(`${labelBase}.label`) : null)
+          || metric.key;
         
         // Use unit from service if available, otherwise use translation
         const metricUnit = isService 
@@ -635,14 +682,17 @@ export default function CostGuardMetricsPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         {filteredMetrics.map((metric, index) => {
-          // Check if this is a service (has serviceName) or a legacy metric
+          // Check if this is a dimension (has dimensionId/label) or service (has serviceName) or legacy metric
+          const isDimension = (metric as any).dimensionId || (metric as any).label;
           const isService = (metric as any).serviceName;
-          const labelBase = isService ? null : metricLabels[metric.key];
+          const labelBase = (isDimension || isService) ? null : metricLabels[metric.key];
           
-          // Use serviceName if available, otherwise use translation
-          const name = isService 
-            ? (metric as any).serviceName 
-            : (labelBase ? t(`${labelBase}.label`) : metric.key);
+          // Use label (from dimension) if available, then serviceName, otherwise use translation
+          // Prioritize label, then serviceName, then translation, finally key
+          const name = (metric as any).label 
+            || (metric as any).serviceName
+            || (labelBase ? t(`${labelBase}.label`) : null)
+            || metric.key;
           
           // Use unit from service if available, otherwise use translation
           const unit = isService 
@@ -659,8 +709,16 @@ export default function CostGuardMetricsPage() {
           // Check if there's an error (hasError or error field)
           const hasError = (metric as any).hasError === true || ((metric as any).error !== null && (metric as any).error !== undefined);
           
-          // Generate unique key: use serviceKey if available, otherwise use metric.key, fallback to index
-          const uniqueKey = (metric as any).serviceKey || metric.key || `metric_${index}`;
+          // Generate unique key: prioritize dimensionId, then serviceKey, then metric.key, finally use index
+          // Always ensure we have a unique key to avoid React key conflicts
+          const dimensionId = (metric as any).dimensionId;
+          const serviceKey = (metric as any).serviceKey;
+          const metricKey = metric.key;
+          
+          const uniqueKey = dimensionId 
+            || (serviceKey ? `service_${serviceKey}` : null)
+            || (metricKey ? `metric_${metricKey}` : null)
+            || `metric_${index}`;
           
           return (
             <MetricUsageCard
@@ -677,6 +735,7 @@ export default function CostGuardMetricsPage() {
               monthlyDays={metric.monthlyDays}
               daysElapsed={metric.daysElapsed}
               daysRemaining={metric.daysRemaining}
+              hasContract={metric.hasContract !== undefined ? metric.hasContract : (metric.committed > 0)}
               statusBadge={
                 <Badge variant="outline" className="border px-2 py-0.5 text-xs font-medium">
                   {statusLabel}

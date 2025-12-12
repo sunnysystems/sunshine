@@ -3,6 +3,7 @@
  */
 
 import type { MetricUsage, TimeseriesData, DatadogUsageResponseV2, DatadogUsageResponse } from './types';
+import { debugApi } from '@/lib/debug';
 
 /**
  * Extract timeseries data from various Datadog API response formats
@@ -501,6 +502,11 @@ export function generateMonthlyDays(
   // For MAX metrics, we use the daily value directly
   let cumulativeValue = 0; // Track cumulative value for SUM metrics
   
+  // Get current hour in UTC to determine if we're still early in the current day
+  const currentHour = currentDate.getUTCHours();
+  // If we're in the first 3 hours of the day (0-2 AM UTC), consider it early enough
+  // that data for the current day might not be available yet
+
   for (let day = 1; day <= lastDay; day++) {
     const date = new Date(Date.UTC(year, month, day));
     const dateString = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
@@ -525,8 +531,9 @@ export function generateMonthlyDays(
           isForecast: false,
         });
       }
-    } else if (day > currentDay) {
-      // This is a future day - use forecast
+    } else if (day > currentDay || (day === currentDay && currentHour < 3)) {
+      // This is a future day, or today but we're early in the day (before 3 AM UTC)
+      // and don't have data yet - treat as forecast
       if (aggregationType === 'MAX') {
         // For MAX metrics, use the daily forecast value (not cumulative)
         allDays.push({
@@ -545,9 +552,9 @@ export function generateMonthlyDays(
           });
         } else {
           // Interpolate between current cumulative value and projectedTotal
-          const daysFromNow = day - currentDay;
+          const daysFromNow = day > currentDay ? day - currentDay : 0;
           const totalForecastDays = daysRemaining;
-          const progress = daysFromNow / totalForecastDays; // 0 to 1
+          const progress = totalForecastDays > 0 ? daysFromNow / totalForecastDays : 0; // 0 to 1
           const forecastValue = cumulativeValue + (projectedTotal - cumulativeValue) * progress;
           allDays.push({
             date: dateString,
@@ -900,6 +907,128 @@ export function calculateTotalUsage(
   }
 
   return Math.round(total);
+}
+
+/**
+ * Extract usage by dimension keys (hourly_usage_keys)
+ * Filters measurements by matching hourly_usage_keys and applies aggregation
+ * @param data - Datadog API response with hourly usage data
+ * @param hourlyUsageKeys - Array of keys to match against measurement usage_type
+ * @param aggregationType - 'MAX' for capacity metrics, 'SUM' for volume metrics
+ * @returns Total usage value
+ */
+export function extractUsageByDimensionKeys(
+  data: DatadogUsageResponseV2 | DatadogUsageResponse | null | undefined,
+  hourlyUsageKeys: string[],
+  aggregationType: 'MAX' | 'SUM' = 'SUM',
+): number {
+  if (!data || !hourlyUsageKeys || hourlyUsageKeys.length === 0) {
+    return 0;
+  }
+
+  // Create sets for faster lookup - exact matches and normalized keys
+  const exactKeysSet = new Set(hourlyUsageKeys.map(k => k.toLowerCase()));
+  const normalizedKeysSet = new Set(hourlyUsageKeys.map(k => k.toLowerCase().replace(/_/g, '')));
+
+  // Track all usage_types found in the data for debugging
+  const foundUsageTypes = new Set<string>();
+  let matchedCount = 0;
+  let totalMeasurements = 0;
+
+  // Create filter function that matches any of the hourly_usage_keys
+  // Prefer exact match (case-insensitive), then try normalized match (without underscores)
+  const matchesKey = (usageType: string): boolean => {
+    if (!usageType) return false;
+    
+    totalMeasurements++;
+    foundUsageTypes.add(usageType);
+    
+    const usageTypeLower = usageType.toLowerCase();
+    const usageTypeNormalized = usageTypeLower.replace(/_/g, '');
+    
+    // First try exact match (case-insensitive)
+    if (exactKeysSet.has(usageTypeLower)) {
+      matchedCount++;
+      return true;
+    }
+    
+    // Then try normalized match (without underscores) - handles variations like "apm_host_count" vs "apmhostcount"
+    if (normalizedKeysSet.has(usageTypeNormalized)) {
+      matchedCount++;
+      return true;
+    }
+    
+    // Last resort: check if any hourly_usage_key is contained in the usage_type
+    // This is more permissive but necessary for some edge cases
+    for (const key of hourlyUsageKeys) {
+      const keyLower = key.toLowerCase();
+      if (usageTypeLower.includes(keyLower) || keyLower.includes(usageTypeLower)) {
+        matchedCount++;
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
+  if (aggregationType === 'MAX') {
+    const result = extractMaxUsage(data, matchesKey);
+    
+    // Log debug info if no matches found
+    if (matchedCount === 0 && totalMeasurements > 0) {
+      debugApi('No matches found for hourly_usage_keys', {
+        hourlyUsageKeys,
+        foundUsageTypes: Array.from(foundUsageTypes),
+        totalMeasurements,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    
+    return result;
+  } else {
+    // SUM aggregation
+    let total = 0;
+
+    // Handle v2 API format
+    if (data.data && Array.isArray(data.data)) {
+      for (const hourlyUsage of data.data) {
+        if (hourlyUsage.attributes?.measurements && Array.isArray(hourlyUsage.attributes.measurements)) {
+          for (const measurement of hourlyUsage.attributes.measurements) {
+            if (matchesKey(measurement.usage_type) && typeof measurement.value === 'number') {
+              total += measurement.value;
+            }
+          }
+        }
+      }
+    }
+
+    // Handle legacy v1 format
+    if (data.usage && Array.isArray(data.usage)) {
+      for (const entry of data.usage) {
+        if (entry.timeseries && Array.isArray(entry.timeseries)) {
+          for (const timeseries of entry.timeseries) {
+            for (const value of Object.values(timeseries)) {
+              if (typeof value === 'number') {
+                total += value;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Log debug info if no matches found
+    if (matchedCount === 0 && totalMeasurements > 0) {
+      debugApi('No matches found for hourly_usage_keys', {
+        hourlyUsageKeys,
+        foundUsageTypes: Array.from(foundUsageTypes),
+        totalMeasurements,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return Math.round(total);
+  }
 }
 
 /**

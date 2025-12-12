@@ -275,17 +275,46 @@ export async function POST(request: NextRequest) {
         .delete()
         .eq('config_id', config.id);
 
-      // Group services by service_key to handle duplicates
+      // Group services by service_key or dimension_id to handle duplicates
       // If there are duplicates, we'll keep the first one and log a warning
       const servicesByKey = new Map<string, any>();
       const duplicates: string[] = [];
 
+      // Validate dimension_ids if provided
+      if (configData.services.some((s: any) => s.dimensionId)) {
+        const dimensionIds = configData.services
+          .map((s: any) => s.dimensionId)
+          .filter((id: string | undefined) => id);
+        
+        if (dimensionIds.length > 0) {
+          const { data: existingDimensions } = await supabaseAdmin
+            .from('datadog_billing_dimensions')
+            .select('dimension_id')
+            .eq('organization_id', organizationId)
+            .in('dimension_id', dimensionIds);
+          
+          const existingDimensionIds = new Set(existingDimensions?.map(d => d.dimension_id) || []);
+          const invalidDimensions = dimensionIds.filter((id: string) => !existingDimensionIds.has(id));
+          
+          if (invalidDimensions.length > 0) {
+            return NextResponse.json(
+              {
+                message: `Invalid dimension_id(s): ${invalidDimensions.join(', ')}. These dimensions do not exist for this organization.`,
+                invalidDimensions,
+              },
+              { status: 400 },
+            );
+          }
+        }
+      }
+
       for (const service of configData.services) {
-        const key = service.serviceKey;
+        // Use dimension_id as key if available, otherwise use service_key
+        const key = service.dimensionId || service.serviceKey;
         if (servicesByKey.has(key)) {
           duplicates.push(key);
           // eslint-disable-next-line no-console
-          console.warn(`Duplicate service key detected: ${key} - keeping first occurrence`, {
+          console.warn(`Duplicate key detected: ${key} - keeping first occurrence`, {
             serviceName: service.serviceName,
             existingServiceName: servicesByKey.get(key).service_name,
           });
@@ -303,6 +332,7 @@ export async function POST(request: NextRequest) {
           unit: service.unit,
           committed_value: service.committedValue || (service.quantity || 0) * (service.listPrice || 0),
           threshold: service.threshold !== null && service.threshold !== undefined ? service.threshold : null,
+          dimension_id: service.dimensionId || null, // Add dimension_id if provided
         });
       }
 

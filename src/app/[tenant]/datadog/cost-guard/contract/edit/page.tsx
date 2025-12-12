@@ -103,8 +103,10 @@ export default function EditContractPage() {
           // Load services data
           if (data.services && Array.isArray(data.services) && data.services.length > 0) {
             const servicesData: Record<string, ServiceFormData> = {};
-            data.services.forEach((service: { service_key: string; quantity: number; list_price: number; threshold: number | null }) => {
-              servicesData[service.service_key] = {
+            data.services.forEach((service: { service_key: string; dimension_id?: string | null; quantity: number; list_price: number; threshold: number | null }) => {
+              // Use dimension_id as key if available, otherwise use service_key
+              const key = service.dimension_id || service.service_key;
+              servicesData[key] = {
                 quantity: String(service.quantity || 0),
                 listPrice: String(service.list_price || 0),
                 threshold: service.threshold !== null && service.threshold !== undefined
@@ -114,25 +116,18 @@ export default function EditContractPage() {
             });
             setServices(servicesData);
           } else {
-            // No services, initialize with active billing dimensions or fallback to SERVICE_MAPPINGS
+            // No services, initialize with billing dimensions (preferred) or fallback to SERVICE_MAPPINGS
             const defaultServices: Record<string, ServiceFormData> = {};
-            const activeServiceKeys = new Set(
-              billingDimensions
-                .map((dim) => dim.mappedServiceKey)
-                .filter((key): key is string => key !== null && key !== undefined),
-            );
 
-            // Use billing dimensions if available, otherwise fallback to SERVICE_MAPPINGS
-            if (billingDimensions.length > 0 && activeServiceKeys.size > 0) {
-              // Initialize only services that are mapped from active billing dimensions
-              Array.from(activeServiceKeys).forEach((serviceKey) => {
-                if (SERVICE_MAPPINGS[serviceKey]) {
-                  defaultServices[serviceKey] = {
-                    quantity: '0',
-                    listPrice: '0',
-                    threshold: '',
-                  };
-                }
+            // Use billing dimensions if available (preferred approach)
+            if (billingDimensions.length > 0) {
+              // Initialize all dimensions
+              billingDimensions.forEach((dim) => {
+                defaultServices[dim.dimensionId] = {
+                  quantity: '0',
+                  listPrice: '0',
+                  threshold: '',
+                };
               });
             } else {
               // Fallback: initialize all SERVICE_MAPPINGS
@@ -212,34 +207,72 @@ export default function EditContractPage() {
       const servicesToSave: ServiceConfig[] = [];
       let totalContractedSpend = 0;
 
-      Object.entries(services).forEach(([serviceKey, formData]) => {
-        const mapping = SERVICE_MAPPINGS[serviceKey];
-        if (!mapping) return;
+      // Import dimension mapping function
+      const { getDimensionMapping } = await import('@/lib/datadog/cost-guard/dimension-mapping');
 
-        const quantity = Number.parseFloat(formData.quantity) || 0;
-        const listPrice = Number.parseFloat(formData.listPrice) || 0;
-        const committedValue = quantity * listPrice;
-        const threshold = formData.threshold
-          ? Number.parseFloat(formData.threshold)
-          : quantity * 0.9;
+      for (const [serviceKey, formData] of Object.entries(services)) {
+        // Check if this is a dimension_id
+        const dimension = billingDimensions.find(d => d.dimensionId === serviceKey);
+        
+        // If it's a dimension, use dimension data; otherwise use SERVICE_MAPPINGS
+        if (dimension) {
+          const quantity = Number.parseFloat(formData.quantity) || 0;
+          const listPrice = Number.parseFloat(formData.listPrice) || 0;
+          const committedValue = quantity * listPrice;
+          const threshold = formData.threshold
+            ? Number.parseFloat(formData.threshold)
+            : quantity * 0.9;
 
-        // Only include services with quantity > 0
-        if (quantity > 0) {
-          servicesToSave.push({
-            serviceKey,
-            serviceName: mapping.serviceName,
-            productFamily: mapping.productFamily,
-            usageType: mapping.usageType,
-            quantity,
-            listPrice,
-            unit: mapping.unit,
-            committedValue,
-            threshold,
-            category: mapping.category,
-          });
-          totalContractedSpend += committedValue;
+          // Only include dimensions with quantity > 0
+          if (quantity > 0) {
+            // Get dimension mapping for metadata
+            const dimMapping = getDimensionMapping(dimension.dimensionId, dimension.hourlyUsageKeys);
+            
+            servicesToSave.push({
+              serviceKey: dimension.mappedServiceKey || dimension.dimensionId, // Fallback to dimensionId if no mapping
+              serviceName: dimension.label,
+              productFamily: dimMapping.productFamily,
+              usageType: undefined, // Dimensions don't have a single usageType
+              quantity,
+              listPrice,
+              unit: dimMapping.unit,
+              committedValue,
+              threshold,
+              category: dimMapping.category,
+              dimensionId: dimension.dimensionId, // Include dimension_id
+            });
+            totalContractedSpend += committedValue;
+          }
+        } else {
+          // Fallback to SERVICE_MAPPINGS (backward compatibility)
+          const mapping = SERVICE_MAPPINGS[serviceKey];
+          if (!mapping) continue;
+
+          const quantity = Number.parseFloat(formData.quantity) || 0;
+          const listPrice = Number.parseFloat(formData.listPrice) || 0;
+          const committedValue = quantity * listPrice;
+          const threshold = formData.threshold
+            ? Number.parseFloat(formData.threshold)
+            : quantity * 0.9;
+
+          // Only include services with quantity > 0
+          if (quantity > 0) {
+            servicesToSave.push({
+              serviceKey,
+              serviceName: mapping.serviceName,
+              productFamily: mapping.productFamily,
+              usageType: mapping.usageType,
+              quantity,
+              listPrice,
+              unit: mapping.unit,
+              committedValue,
+              threshold,
+              category: mapping.category,
+            });
+            totalContractedSpend += committedValue;
+          }
         }
-      });
+      }
 
       const response = await fetch('/api/datadog/cost-guard/contract', {
         method: 'POST',
@@ -561,7 +594,58 @@ export default function EditContractPage() {
     }, 0);
   }, [services]);
 
-  // Filter services based on active billing dimensions
+  // Get available dimensions and services for selection
+  const getAvailableItems = useCallback(() => {
+    const items: Array<{ 
+      id: string; 
+      name: string; 
+      unit: string; 
+      category: string;
+      isDimension: boolean;
+      dimensionId?: string;
+      serviceKey?: string;
+    }> = [];
+
+    // Add all billing dimensions (preferred)
+    billingDimensions.forEach((dim) => {
+      const { getDimensionMapping } = require('@/lib/datadog/cost-guard/dimension-mapping');
+      const mapping = getDimensionMapping(dim.dimensionId, dim.hourlyUsageKeys);
+      items.push({
+        id: dim.dimensionId,
+        name: dim.label,
+        unit: mapping.unit,
+        category: mapping.category,
+        isDimension: true,
+        dimensionId: dim.dimensionId,
+        serviceKey: dim.mappedServiceKey || undefined,
+      });
+    });
+
+    // Add services from SERVICE_MAPPINGS that aren't already represented by dimensions
+    const dimensionServiceKeys = new Set(
+      billingDimensions
+        .map((dim) => dim.mappedServiceKey)
+        .filter((key): key is string => key !== null && key !== undefined),
+    );
+
+    Object.values(SERVICE_MAPPINGS).forEach((mapping) => {
+      // Only include if not already represented by a dimension
+      if (!dimensionServiceKeys.has(mapping.serviceKey)) {
+        items.push({
+          id: mapping.serviceKey,
+          name: mapping.serviceName,
+          unit: mapping.unit,
+          category: mapping.category,
+          isDimension: false,
+          serviceKey: mapping.serviceKey,
+        });
+      }
+    });
+
+    return items;
+  }, [billingDimensions]);
+
+  // Filter services based on active billing dimensions (for backward compatibility)
   const getActiveServices = useCallback(() => {
     if (billingDimensions.length === 0) {
       // Fallback: return all SERVICE_MAPPINGS if no billing dimensions

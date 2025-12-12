@@ -274,22 +274,69 @@ async function datadogRequest<T>(
           ? parseInt(retryAfterHeader, 10)
           : null;
       
+      // Extract rate limit info from headers
+      const rateLimitName = response.headers.get('x-ratelimit-name') || getRateLimitNameFromEndpoint(endpoint);
+      const rateLimitLimit = response.headers.get('x-ratelimit-limit');
+      const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+      const rateLimitPeriod = response.headers.get('x-ratelimit-period');
+      
+      // Update rate limit info in Redis to stop all other requests
+      // Set remaining to 0 to indicate we've hit the limit
+      const rateLimitInfo = extractRateLimitFromHeaders(response.headers);
+      if (rateLimitInfo) {
+        // Force remaining to 0 to stop all requests
+        const blockedRateLimitInfo = {
+          ...rateLimitInfo,
+          remaining: 0, // Force to 0 to stop all requests
+        };
+        await setRateLimitInfo(blockedRateLimitInfo);
+        
+        debugApi('Rate limit hit - blocking all requests until reset', {
+          rateLimitName: blockedRateLimitInfo.name,
+          limit: blockedRateLimitInfo.limit,
+          remaining: blockedRateLimitInfo.remaining,
+          reset: blockedRateLimitInfo.reset,
+          period: blockedRateLimitInfo.period,
+          retryAfter,
+          timestamp: new Date().toISOString(),
+        });
+      } else if (rateLimitName) {
+        // If we don't have full headers, still update with what we know
+        const inferredInfo: DatadogRateLimitInfo = {
+          limit: rateLimitLimit ? parseInt(rateLimitLimit, 10) : 0,
+          remaining: 0, // Force to 0
+          reset: retryAfter || 30, // Use retryAfter or default 30 seconds
+          period: rateLimitPeriod ? parseInt(rateLimitPeriod, 10) : 30,
+          name: rateLimitName,
+          lastUpdated: new Date(),
+        };
+        await setRateLimitInfo(inferredInfo);
+        
+        debugApi('Rate limit hit - blocking all requests (inferred info)', {
+          rateLimitName: inferredInfo.name,
+          remaining: inferredInfo.remaining,
+          reset: inferredInfo.reset,
+          retryAfter,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // Also extract other rate limit headers for debugging
-      const rateLimitInfo = {
-        limit: response.headers.get('x-ratelimit-limit'),
-        remaining: response.headers.get('x-ratelimit-remaining'),
-        reset: response.headers.get('x-ratelimit-reset'),
-        period: response.headers.get('x-ratelimit-period'),
-        name: response.headers.get('x-ratelimit-name'),
+      const rateLimitInfoDebug = {
+        limit: rateLimitLimit,
+        remaining: rateLimitRemaining,
+        reset: rateLimitReset,
+        period: rateLimitPeriod,
+        name: rateLimitName,
       };
 
-      debugApi('Datadog API 429 Rate Limit', {
+      debugApi('Datadog API 429 Rate Limit - All requests will be blocked', {
         ...errorDetails,
         retryAfter,
         rateLimitReset,
         retryAfterHeader,
-        rateLimitInfo,
-        message: 'Rate limit exceeded. Please wait before retrying.',
+        rateLimitInfo: rateLimitInfoDebug,
+        message: 'Rate limit exceeded. All requests will be stopped until reset.',
       });
 
       throw new DatadogRateLimitError(
@@ -831,24 +878,38 @@ async function getUsageDataWithDayCache(
         const chunkStart = new Date(`${chunkDays[0]}T00:00:00Z`);
         const chunkEnd = new Date(`${chunkDays[chunkDays.length - 1]}T23:59:59Z`);
         
-        // Get current time in UTC (rounded down to current hour) to ensure we don't request future dates
+        // OLD LOGIC: Get current time in UTC (rounded down to current hour) to ensure we don't request future dates
+        // This was causing too many API requests as it would fetch current day data every hour
+        // const now = new Date();
+        // const nowUTC = new Date(Date.UTC(
+        //   now.getUTCFullYear(),
+        //   now.getUTCMonth(),
+        //   now.getUTCDate(),
+        //   now.getUTCHours(),
+        //   0,
+        //   0,
+        //   0
+        // ));
+        
+        // NEW LOGIC: Always use d-1 (yesterday at 23:59:59) to reduce API requests
+        // This ensures we only fetch complete days and avoid frequent cache invalidations
         const now = new Date();
-        const nowUTC = new Date(Date.UTC(
+        const yesterdayUTC = new Date(Date.UTC(
           now.getUTCFullYear(),
           now.getUTCMonth(),
-          now.getUTCDate(),
-          now.getUTCHours(),
-          0,
-          0,
-          0
+          now.getUTCDate() - 1, // d-1 (yesterday)
+          23, // Last hour of yesterday
+          59,
+          59,
+          999
         ));
         
-        // Adjust to respect original startHr/endHr boundaries and ensure no future dates
+        // Adjust to respect original startHr/endHr boundaries and ensure we don't request beyond d-1
         const actualStart = new Date(Math.max(chunkStart.getTime(), new Date(startHr).getTime()));
         const actualEnd = new Date(Math.min(
           chunkEnd.getTime(),
           new Date(endHr).getTime(),
-          nowUTC.getTime() // Ensure we don't request future dates
+          yesterdayUTC.getTime() // Ensure we don't request beyond d-1
         ));
         
         const chunkStartHr = formatDatadogHour(actualStart);
@@ -1293,5 +1354,36 @@ export async function getMultipleUsageData(
   }
 
   return data;
+}
+
+/**
+ * Get usage data by dimension_id
+ * This is a convenience wrapper that uses productFamily from dimension mapping
+ * The actual filtering by hourly_usage_keys is done in extractUsageByDimensionKeys()
+ * @param credentials - Datadog API credentials
+ * @param dimensionId - Billing dimension ID
+ * @param productFamily - Product family for the dimension (from dimension mapping)
+ * @param startHr - Start hour in RFC3339 format
+ * @param endHr - End hour in RFC3339 format
+ * @param organizationId - Organization ID for cache key generation (optional)
+ * @returns Usage data from Datadog API (will be filtered by hourly_usage_keys later)
+ */
+export async function getUsageDataByDimension(
+  credentials: DatadogCredentials,
+  dimensionId: string,
+  productFamily: string,
+  startHr: string,
+  endHr: string,
+  organizationId?: string,
+): Promise<any> {
+  // Use the existing getUsageData function with the productFamily
+  // The filtering by hourly_usage_keys will be done in extractUsageByDimensionKeys()
+  return await getUsageData(
+    credentials,
+    productFamily,
+    startHr,
+    endHr,
+    organizationId,
+  );
 }
 
