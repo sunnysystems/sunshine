@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createPasswordResetToken } from '@/lib/auth';
+import { debugEmail, logError } from '@/lib/debug';
+import { sendPasswordResetEmail } from '@/lib/email';
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +24,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await createPasswordResetToken(email);
+    debugEmail('Forgot password request received', { email });
+
+    const result = await createPasswordResetToken(email);
+
+    if (result.success && result.token && result.user) {
+      debugEmail('Password reset token created, sending email', {
+        email,
+        userId: result.user.id,
+        userName: result.user.name
+      });
+
+      try {
+        await sendPasswordResetEmail(
+          email,
+          result.token,
+          result.user.name || 'User'
+        );
+        
+        debugEmail('Password reset email sent successfully', { email });
+      } catch (emailError) {
+        logError(emailError, 'forgot-password.sendEmail');
+        // Don't reveal email sending failure to user for security
+      }
+    } else {
+      debugEmail('Password reset token creation failed or user not found', {
+        email,
+        success: result.success
+      });
+    }
 
     // Always return success for security (don't reveal if email exists)
     return NextResponse.json(
@@ -30,8 +60,7 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
-    console.error('Forgot password error:', error);
+    logError(error, 'forgot-password');
     
     return NextResponse.json(
       { message: 'Internal server error' },

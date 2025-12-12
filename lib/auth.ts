@@ -144,6 +144,10 @@ export const authOptions = {
           // Check if 2FA is required
           if (user.mfa_enabled && user.mfa_secret) {
             // User has 2FA enabled - require TOTP verification
+            debugAuth('2FA required - TOTP method', {
+              userId: user.id,
+              email: user.email
+            });
             throw new Error(`Requires2FA:totp:${user.id}:${user.email}`);
           } else {
             // User doesn't have 2FA - require Email OTP
@@ -155,11 +159,22 @@ export const authOptions = {
             await store2FACode(user.id, code);
             await send2FACodeEmail(user.email, code, user.name || 'User');
             
+            debugAuth('2FA required - Email OTP method', {
+              userId: user.id,
+              email: user.email
+            });
             throw new Error(`Requires2FA:email:${user.id}:${user.email}`);
           }
         } catch (error) {
-          // eslint-disable-next-line no-console
-          console.error('Auth error:', error);
+          // Check if this is a 2FA requirement (normal flow, not an error)
+          if (error instanceof Error && error.message.startsWith('Requires2FA:')) {
+            // This is part of the normal authentication flow, not an error
+            // The error will be handled by the frontend to redirect to 2FA verification
+            throw error;
+          }
+          
+          // Log actual errors
+          logError(error, 'authorize');
           throw error;
         }
       }

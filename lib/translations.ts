@@ -530,6 +530,7 @@ export const translations = {
         success: 'Password reset successfully! Redirecting to sign in...',
         error: 'An error occurred. Please try again.',
         invalidToken: 'Invalid or expired reset token.',
+        backToSignIn: 'Back to sign in',
       },
       verifyEmail: {
         title: 'Verify your email',
@@ -1642,6 +1643,7 @@ export const translations = {
         success: 'Senha redefinida com sucesso! Redirecionando para entrar...',
         error: 'Ocorreu um erro. Por favor, tente novamente.',
         invalidToken: 'Token de redefinição inválido ou expirado.',
+        backToSignIn: 'Voltar para entrar',
       },
       verifyEmail: {
         title: 'Verifique seu e-mail',

@@ -6,6 +6,21 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Password validation regex
+ * Requires:
+ * - At least one lowercase letter
+ * - At least one uppercase letter
+ * - At least one number
+ * - At least one special character from: !@#$%^&*()_+-=[]{};':"\\|,.<>/?
+ */
+export const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/;
+
+/**
+ * Special characters allowed in passwords
+ */
+export const PASSWORD_SPECIAL_CHARS = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/;
+
+/**
  * Format a number with 2 decimal places when not an integer, otherwise no decimals
  * Maintains thousand separators using toLocaleString()
  * Handles "N/A" strings and null values by returning them as-is

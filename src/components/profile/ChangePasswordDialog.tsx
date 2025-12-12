@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { changePasswordSchema, type ChangePasswordData } from '@/lib/form-schema';
+import { PASSWORD_SPECIAL_CHARS } from '@/lib/utils';
 
 interface ChangePasswordDialogProps {
   children: React.ReactNode;
@@ -244,7 +245,7 @@ function getPasswordStrength(password: string): {
   if (/[a-z]/.test(password)) strength++;
   if (/[A-Z]/.test(password)) strength++;
   if (/\d/.test(password)) strength++;
-  if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) strength++;
+  if (PASSWORD_SPECIAL_CHARS.test(password)) strength++;
 
   if (strength < 3) {
     return {

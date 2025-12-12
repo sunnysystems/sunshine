@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createUser } from '@/lib/auth';
 import { debugApi, logError, RequestTimer } from '@/lib/debug';
 import { sendVerificationEmail } from '@/lib/email';
+import { PASSWORD_REGEX, PASSWORD_SPECIAL_CHARS } from '@/lib/utils';
 
 export async function POST(request: NextRequest) {
   const timer = new RequestTimer('POST /api/auth/signup');
@@ -66,14 +67,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Additional password validation
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/;
-    if (!passwordRegex.test(password)) {
+    if (!PASSWORD_REGEX.test(password)) {
       debugApi('Signup validation failed - password complexity', { 
         passwordLength: password.length,
         hasLowercase: /[a-z]/.test(password),
         hasUppercase: /[A-Z]/.test(password),
         hasNumber: /\d/.test(password),
-        hasSpecial: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+        hasSpecial: PASSWORD_SPECIAL_CHARS.test(password)
       });
       return NextResponse.json(
         { message: 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character' },
