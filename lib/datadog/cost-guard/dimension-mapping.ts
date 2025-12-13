@@ -12,14 +12,78 @@ export interface DimensionMapping {
 }
 
 /**
+ * Precise mapping of billing dimensions to API product families
+ * This mapping takes precedence over heuristic inference.
+ * 
+ * This is the authoritative source for determining which product family
+ * should be used when making API calls for these specific billing dimensions.
+ * Dimensions not listed here will fall back to heuristic inference based on
+ * dimension_id and hourly_usage_keys.
+ */
+const BILLING_DIMENSION_FAMILY_ALLOWLIST: Record<string, Set<string>> = {
+  apm_host: new Set(['infra_hosts']),
+  apm_host_enterprise: new Set(['infra_hosts']),
+  apm_trace_search: new Set(['apm']),
+  application_security_fargate: new Set(['vuln_management']),
+  application_security_host: new Set(['vuln_management']),
+  audit_trail: new Set(['audit_trail']),
+  bits_ai_investigations: new Set(['bits_ai']),
+  csm_host_pro: new Set(['csm_host_enterprise']),
+  custom_event: new Set(['custom_events']),
+  dbm_host: new Set(['dbm']),
+  error_tracking_tiered: new Set(['error_tracking']),
+  incident_management_seats: new Set(['incident_management']),
+  infra_container: new Set(['infra_hosts']),
+  infra_container_excl_agent: new Set(['infra_hosts']),
+  infra_host: new Set(['infra_hosts']),
+  ingested_spans: new Set(['ingested_spans', 'apm']), // First value used: ingested_spans
+  ingested_timeseries: new Set(['timeseries']),
+  llm_observability_min_spend: new Set(['llm_observability']),
+  logs_indexed_15day: new Set(['indexed_logs']),
+  logs_indexed_3day: new Set(['indexed_logs']),
+  logs_indexed_30day: new Set(['indexed_logs']),
+  logs_indexed_7day: new Set(['indexed_logs']),
+  logs_ingested: new Set(['logs']),
+  rum_ingested: new Set(['rum']),
+  rum_investigate: new Set(['rum']),
+  network_hosts: new Set(['network_hosts']),
+  npm_host: new Set(['infra_hosts']),
+  prof_host: new Set(['profiling']),
+  prof_container: new Set(['infra_hosts']),
+  serverless_apm: new Set(['serverless']),
+  serverless_apps: new Set(['serverless']),
+  serverless_apps_apm: new Set(['serverless']),
+  serverless_infra: new Set(['serverless']),
+  siem_indexed: new Set(['cloud_siem']),
+  synthetics_browser_checks: new Set(['synthetics_browser']),
+  synthetics_api_tests: new Set(['synthetics_api']),
+  timeseries: new Set(['timeseries']),
+};
+
+/**
  * Map dimension_id to productFamily
- * Infers productFamily from dimension_id or hourly_usage_keys
+ * Uses precise mapping first, then falls back to heuristic inference
  */
 export function getProductFamilyForDimension(
   dimensionId: string,
   hourlyUsageKeys: string[],
 ): string {
   const dimLower = dimensionId.toLowerCase();
+  
+  // FIRST: Check precise mapping (takes precedence)
+  // Check exact match first
+  if (BILLING_DIMENSION_FAMILY_ALLOWLIST[dimensionId]) {
+    const allowedFamilies = BILLING_DIMENSION_FAMILY_ALLOWLIST[dimensionId];
+    // Return the first (and typically only) allowed family
+    return Array.from(allowedFamilies)[0];
+  }
+  
+  // Check case-insensitive match
+  for (const [mappedDimension, allowedFamilies] of Object.entries(BILLING_DIMENSION_FAMILY_ALLOWLIST)) {
+    if (mappedDimension.toLowerCase() === dimLower) {
+      return Array.from(allowedFamilies)[0];
+    }
+  }
   
   // IMPORTANT: Check hourly_usage_keys FIRST for specific patterns
   // This is critical because hourly_usage_keys come from the actual Datadog billing API
